@@ -1,0 +1,40 @@
+# ===========================================
+# ExaSignal - Production Dependencies (Lightweight)
+# ===========================================
+# Optimized for Railway deploy - no TensorFlow/OpenCV
+# ===========================================
+
+# Telegram Bot
+python-telegram-bot==20.7
+
+# API Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# HTTP Client (async)
+httpx==0.25.2
+aiohttp==3.9.1
+
+# RSS Feeds
+feedparser==6.0.10
+
+# Configuração
+pyyaml==6.0.1
+python-dotenv==1.0.0
+
+# Data handling
+pydantic==2.5.3
+python-dateutil==2.8.2
+
+# Database (persistência)
+aiosqlite==0.19.0
+
+# Logging
+structlog==23.2.0
+
+# Exa API (fallback)
+exa-py==1.0.9
+
+# Groq LLM
+groq

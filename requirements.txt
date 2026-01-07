@@ -1,0 +1,65 @@
+# ===========================================
+# ExaSignal - Dependências Python
+# ===========================================
+
+# Telegram Bot
+python-telegram-bot==20.7
+
+# API Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Polymarket APIs
+py-clob-client==0.1.0
+
+# HTTP Client (async)
+httpx==0.25.2
+aiohttp==3.9.1
+
+# RSS Feeds
+feedparser==6.0.10
+
+# Configuração
+pyyaml==6.0.1
+python-dotenv==1.0.0
+
+# Data handling
+pydantic==2.5.3
+
+# Date/time
+python-dateutil==2.8.2
+
+# Database (persistência)
+aiosqlite==0.19.0
+
+# Logging
+loguru==0.7.2
+structlog==23.2.0
+
+# Exa API (opcional - fallback)
+exa-py==1.0.9
+
+# CNN e Machine Learning (opcional - para análise avançada)
+tensorflow==2.15.0  # CNN implementation
+scikit-learn==1.3.0  # Data preprocessing
+numpy==1.24.0  # Numerical computations
+pandas==2.0.0  # Data manipulation
+
+# Image processing (opcional)
+Pillow==10.0.0  # Image handling
+opencv-python==4.8.0.76  # Computer vision
+
+# External data sources (opcional - para CNN avançada)
+tweepy==4.14.0  # Twitter API (sentiment)
+web3==6.11.0   # Ethereum/Web3 (on-chain data)
+ccxt>=4.1.0    # Crypto exchanges (price data)
+vaderSentiment==3.3.2  # Sentiment analysis
+
+# Hardware acceleration (opcional - Jetson/Corpus)
+# jetson-stats==4.2.0  # Jetson Nano monitoring (descomentar se tiver Jetson)
+
+# Testes
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0

@@ -1,0 +1,45 @@
+# Exemplo de markets.yaml
+# Substitua os market_id pelos IDs reais dos mercados do Polymarket
+# Você pode encontrar os IDs:
+# - Na URL do mercado no Polymarket
+# - Via Gamma API: https://gamma.io/api/v1/markets
+# - Inspecionando o código da página do mercado
+
+markets:
+  - market_id: "0x1234567890abcdef1234567890abcdef12345678"
+    market_name: "Best AI Model by End of 2025"
+    yes_definition: "Modelo líder em benchmarks e adoção"
+    no_definition: "Qualquer outro resultado"
+    category: "AI"
+    description: "Mercado para determinar qual modelo de IA será considerado o melhor até o final de 2025"
+    tags:
+      - "AI"
+      - "models"
+      - "2025"
+  
+  - market_id: "0xabcdef1234567890abcdef1234567890abcdef12"
+    market_name: "OpenAI vs Google vs Anthropic Outcomes"
+    yes_definition: "OpenAI mantém liderança"
+    no_definition: "Google ou Anthropic assumem liderança"
+    category: "AI"
+    description: "Mercado sobre qual empresa manterá liderança em modelos de IA"
+    tags:
+      - "AI"
+      - "companies"
+      - "competition"
+  
+  - market_id: "0x9876543210fedcba9876543210fedcba98765432"
+    market_name: "First AGI Claim"
+    yes_definition: "Primeira reivindicação credível de AGI até 2026"
+    no_definition: "Nenhuma reivindicação credível até 2026"
+    category: "frontier_tech"
+    description: "Mercado sobre primeira reivindicação credível de AGI"
+    tags:
+      - "AGI"
+      - "frontier"
+      - "2026"
+
+# Adicionar mais mercados conforme necessário
+# IMPORTANTE: Deve ter entre 10-15 mercados no total
+# Todos devem ser da categoria "AI" ou "frontier_tech"
+
