@@ -19,8 +19,9 @@ from src.api.gamma_client import GammaClient
 from src.api.clob_client import CLOBClient
 from src.core.market_manager import MarketManager
 from src.core.whale_filter import WhaleFilter
+from src.core.smart_money import SmartMoneyService
 from src.storage.wallet_history import WalletHistory
-from src.models.whale_event import WhaleEvent
+from src.models.whale_event import WhaleEvent, WhaleProfile
 from src.utils.logger import logger
 from src.utils.config import Config
 
@@ -39,7 +40,8 @@ class WhaleDetector:
         gamma_client: GammaClient,
         clob_client: CLOBClient,
         whale_filter: WhaleFilter = None,
-        wallet_history: WalletHistory = None
+        wallet_history: WalletHistory = None,
+        smart_money: SmartMoneyService = None  # NEW: Smart money service
     ):
         """Inicializa detector com dependências."""
         self.market_manager = market_manager
@@ -47,6 +49,8 @@ class WhaleDetector:
         self.clob = clob_client
         self.whale_filter = whale_filter or WhaleFilter()
         self.wallet_history = wallet_history or WalletHistory()
+        self.smart_money = smart_money or SmartMoneyService()  # NEW
+        self._smart_money_initialized = False
     
     async def check_market(self, market_id: str) -> List[WhaleEvent]:
         """Verifica um mercado e retorna eventos whale detectados."""
@@ -93,6 +97,31 @@ class WhaleDetector:
         
         return events
     
+    async def _ensure_smart_money_loaded(self) -> None:
+        """Ensure smart money leaderboard is loaded."""
+        if not self._smart_money_initialized:
+            count = await self.smart_money.refresh_leaderboard()
+            self._smart_money_initialized = True
+            logger.info("smart_money_loaded", wallets=count)
+    
+    async def _enrich_with_smart_money(self, profile: WhaleProfile) -> WhaleProfile:
+        """Enrich whale profile with smart money data."""
+        await self._ensure_smart_money_loaded()
+        
+        trader = self.smart_money.get_trader(profile.wallet_address)
+        if trader:
+            profile.smart_score = trader.smart_score
+            profile.leaderboard_rank = trader.rank
+            profile.is_smart_money = True
+            logger.info(
+                "smart_money_whale_detected",
+                wallet=profile.wallet_address[:10] + "...",
+                rank=trader.rank,
+                score=trader.smart_score
+            )
+        
+        return profile
+    
     async def _evaluate_trade(
         self,
         trade: Dict,
@@ -129,6 +158,16 @@ class WhaleDetector:
         # Atualizar histórico
         await self._update_wallet_history(wallet, market_id)
         
+        # Build basic profile
+        profile = WhaleProfile(
+            wallet_address=wallet,
+            total_trades=1,
+            total_volume_usd=size_usd
+        )
+        
+        # Enrich with smart money data
+        profile = await self._enrich_with_smart_money(profile)
+        
         # Criar evento
         return WhaleEvent(
             market_id=market_id,
@@ -139,7 +178,8 @@ class WhaleDetector:
             liquidity_ratio=size_usd / liquidity if liquidity > 0 else 0,
             timestamp=datetime.now(),
             is_new_position=True,
-            previous_position_size=0.0
+            previous_position_size=0.0,
+            profile=profile  # Attach enriched profile
         )
     
     async def _is_wallet_inactive(self, wallet: str, market_id: str) -> bool:
