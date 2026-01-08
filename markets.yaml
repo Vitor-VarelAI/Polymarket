@@ -138,3 +138,42 @@ markets:
     no_definition: "Remains private"
     category: "AI"
     tags: ["OpenAI", "IPO", "business"]
+
+  # ============================================
+  # ⚽ FOOTBALL / EPL (High Volume Sports)
+  # ============================================
+  
+  - market_id: "premier-league-winner-2025-26"
+    market_name: "Premier League Winner 2025-26?"
+    yes_definition: "Team wins EPL title"
+    no_definition: "Other team wins"
+    category: "sports"
+    tags: ["football", "EPL", "Premier League"]
+
+  - market_id: "liverpool-wins-premier-league"
+    market_name: "Liverpool wins Premier League 2025-26?"
+    yes_definition: "Liverpool wins EPL"
+    no_definition: "Liverpool does not win"
+    category: "sports"
+    tags: ["Liverpool", "EPL", "football"]
+
+  - market_id: "manchester-city-wins-premier-league"
+    market_name: "Manchester City wins Premier League 2025-26?"
+    yes_definition: "Man City wins EPL"
+    no_definition: "Man City does not win"
+    category: "sports"
+    tags: ["Manchester City", "EPL", "football"]
+
+  - market_id: "arsenal-wins-premier-league"
+    market_name: "Arsenal wins Premier League 2025-26?"
+    yes_definition: "Arsenal wins EPL"
+    no_definition: "Arsenal does not win"
+    category: "sports"
+    tags: ["Arsenal", "EPL", "football"]
+
+  - market_id: "champions-league-winner-2025-26"
+    market_name: "Champions League Winner 2025-26?"
+    yes_definition: "Team wins UCL"
+    no_definition: "Other team wins"
+    category: "sports"
+    tags: ["football", "Champions League", "UCL"]
