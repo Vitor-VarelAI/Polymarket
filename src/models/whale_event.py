@@ -102,6 +102,11 @@ class WhaleProfile:
     yes_bets: int = 0
     no_bets: int = 0
     
+    # === NEW: Smart Money Score (from leaderboard) ===
+    smart_score: int = 0  # 0-100, from SmartMoneyService
+    leaderboard_rank: Optional[int] = None  # Rank on Polymarket leaderboard
+    is_smart_money: bool = False  # True if in top traders list
+    
     @property
     def profile_type(self) -> str:
         """Classifica o tipo de whale."""
@@ -310,6 +315,14 @@ class WhaleEvent:
             lines.extend([
                 "**👤 WALLET PROFILE:**",
                 f"├ Type: {self.profile.profile_type}",
+            ])
+            
+            # Add smart money indicator if available
+            if self.profile.is_smart_money:
+                lines.append(f"├ 💎 SMART MONEY (Rank #{self.profile.leaderboard_rank})")
+                lines.append(f"├ Smart Score: {self.profile.smart_score}/100")
+            
+            lines.extend([
                 f"├ Total Trades: {self.profile.total_trades}",
                 f"├ Win Rate: {self.profile.win_rate:.0f}%",
                 f"├ Total Volume: ${self.profile.total_volume_usd:,.0f}",
