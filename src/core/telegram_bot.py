@@ -79,7 +79,13 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("stats", self._cmd_stats))
         self.app.add_handler(CommandHandler("upcoming", self._cmd_upcoming))
         self.app.add_handler(CommandHandler("roi", self._cmd_roi))
-        self.app.add_handler(CommandHandler("analyze", self._cmd_analyze))  # NEW: URL analysis
+        self.app.add_handler(CommandHandler("analyze", self._cmd_analyze))
+        
+        # Auto-detect Polymarket URLs in messages
+        self.app.add_handler(MessageHandler(
+            filters.TEXT & filters.Regex(r"polymarket\.com/event/"),
+            self._handle_polymarket_link
+        ))
         
         # Guided Investigation Handler
         conv_handler = ConversationHandler(
@@ -542,3 +548,40 @@ _Source: {signal.news_source}_
             await update.message.reply_text(
                 "❌ Erro ao analisar. Tenta novamente mais tarde."
             )
+    
+    async def _handle_polymarket_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Auto-analyze Polymarket links sent as plain messages."""
+        try:
+            text = update.message.text
+            
+            # Extract URL from message
+            import re
+            match = re.search(r'https?://[^\s]+polymarket\.com/event/[^\s]+', text)
+            if not match:
+                return
+            
+            url = match.group(0)
+            
+            # Send "analyzing" message
+            msg = await update.message.reply_text("🔍 Detected Polymarket link! Analyzing...")
+            
+            # Analyze URL
+            analyzer = URLAnalyzer()
+            try:
+                analysis = await analyzer.analyze(url)
+            finally:
+                await analyzer.close()
+            
+            if not analysis:
+                await msg.edit_text(
+                    "❌ Não consegui analisar este mercado.\n"
+                    "Verifica se o link está correto."
+                )
+                return
+            
+            # Format and send
+            message = analyzer.format_telegram(analysis)
+            await msg.edit_text(message, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error("polymarket_link_handler_error", error=str(e))
