@@ -81,9 +81,9 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("roi", self._cmd_roi))
         self.app.add_handler(CommandHandler("analyze", self._cmd_analyze))
         
-        # Auto-detect Polymarket URLs in messages
+        # Auto-detect Polymarket URLs in messages (exclude commands)
         self.app.add_handler(MessageHandler(
-            filters.TEXT & filters.Regex(r"polymarket\.com/event/"),
+            filters.TEXT & ~filters.COMMAND & filters.Regex(r"polymarket\.com"),
             self._handle_polymarket_link
         ))
         
@@ -553,10 +553,11 @@ _Source: {signal.news_source}_
         """Auto-analyze Polymarket links sent as plain messages."""
         try:
             text = update.message.text
+            logger.info("polymarket_link_detected", text=text[:100])
             
             # Extract URL from message
             import re
-            match = re.search(r'https?://[^\s]+polymarket\.com/event/[^\s]+', text)
+            match = re.search(r'https?://[^\s]*polymarket\.com/event/[^\s?]*', text)
             if not match:
                 return
             
