@@ -26,6 +26,7 @@ from src.core.investigator import Investigator
 from src.core.alignment_scorer import AlignmentScorer
 from src.core.alert_generator import AlertGenerator
 from src.core.telegram_bot import TelegramBot
+from src.core.event_scheduler import EventScheduler  # NEW
 from src.api.gamma_client import GammaClient
 from src.api.clob_client import CLOBClient
 from src.api.newsapi_client import NewsAPIClient
@@ -91,6 +92,12 @@ class ExaSignal:
             gamma=self.gamma
         )
         
+        # Event Scheduler (NEW - pre-event analysis)
+        self.event_scheduler = EventScheduler(
+            market_manager=self.market_manager,
+            gamma_client=self.gamma
+        )
+        
         # Alert & Bot
         self.rate_limiter = RateLimiter()
         self.alert_generator = AlertGenerator(rate_limiter=self.rate_limiter)
@@ -98,7 +105,8 @@ class ExaSignal:
             market_manager=self.market_manager,
             alert_generator=self.alert_generator,
             investigator=self.investigator,
-            research_agent=self.research_agent
+            research_agent=self.research_agent,
+            event_scheduler=self.event_scheduler  # NEW
         )
         
         # Estado
