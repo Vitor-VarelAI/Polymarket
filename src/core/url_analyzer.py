@@ -147,7 +147,7 @@ class URLAnalyzer:
             return None
     
     def _generate_recommendation(self, candidates: List[Dict], end_date: Optional[datetime]) -> str:
-        """Generate a simple recommendation based on odds."""
+        """Generate a recommendation including WHO to bet on."""
         if not candidates:
             return "⚠️ No active candidates found."
         
@@ -159,25 +159,51 @@ class URLAnalyzer:
             delta = end_date.replace(tzinfo=None) - datetime.now()
             days_left = max(0, delta.days)
         
-        # Check for value bets (high weekly movement)
-        movers = [c for c in candidates if abs(c.get("change_week", 0)) > 5]
+        # Find value bets
+        # 1. Rising candidates (positive momentum)
+        risers = [c for c in candidates if c.get("change_week", 0) > 5 and c["odds"] < 40]
+        # 2. Stable favorites
+        stable_fav = [c for c in candidates if c["odds"] > 40 and abs(c.get("change_week", 0)) < 5]
+        # 3. High momentum plays
+        movers = sorted([c for c in candidates if abs(c.get("change_week", 0)) > 5], 
+                       key=lambda x: x.get("change_week", 0), reverse=True)
         
         lines = []
         
-        # Favorite
+        # Favorite status
         if top["odds"] > 50:
-            lines.append(f"🏆 Clear favorite: {top['name']} ({top['odds']:.1f}%)")
+            lines.append(f"🏆 Favorite: {top['name']} ({top['odds']:.1f}%)")
         else:
-            lines.append(f"🤔 Competitive race - no clear favorite")
+            lines.append(f"🤔 Close race - no clear favorite")
         
         # Time
         lines.append(f"⏰ {days_left} days until resolution")
         
-        # Movers
-        if movers:
-            for m in movers[:2]:
-                direction = "📈" if m["change_week"] > 0 else "📉"
-                lines.append(f"{direction} {m['name']}: {m['change_week']:+.1f}% this week")
+        # SPECIFIC BET RECOMMENDATION
+        lines.append("")
+        lines.append("**🎯 BET SUGGESTION:**")
+        
+        best_bet = None
+        bet_reason = ""
+        
+        # Priority 1: Rising underdog with momentum
+        if risers:
+            best_bet = risers[0]
+            bet_reason = f"📈 MOMENTUM PLAY - up {best_bet['change_week']:+.1f}% this week"
+        # Priority 2: Stable favorite (safe bet)
+        elif stable_fav:
+            best_bet = stable_fav[0]
+            bet_reason = "🛡️ SAFE PLAY - stable favorite"
+        # Priority 3: Just the top candidate
+        else:
+            best_bet = top
+            bet_reason = "📊 LEADING ODDS"
+        
+        if best_bet:
+            payout = 1.50 * (100 / best_bet["odds"]) if best_bet["odds"] > 0 else 0
+            lines.append(f"→ **{best_bet['name']}** at {best_bet['odds']:.1f}%")
+            lines.append(f"  {bet_reason}")
+            lines.append(f"  $1.50 bet → ${payout:.2f} if wins")
         
         return "\n".join(lines)
     
