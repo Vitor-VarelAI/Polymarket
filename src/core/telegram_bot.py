@@ -27,6 +27,7 @@ from src.core.market_manager import MarketManager
 from src.core.alert_generator import AlertGenerator
 from src.core.investigator import Investigator
 from src.core.event_scheduler import EventScheduler
+from src.core.url_analyzer import URLAnalyzer
 from src.storage.user_db import UserDB
 from src.storage.rate_limiter import RateLimiter
 from src.storage.performance_tracker import PerformanceTracker
@@ -77,7 +78,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("signals", self._cmd_signals))
         self.app.add_handler(CommandHandler("stats", self._cmd_stats))
         self.app.add_handler(CommandHandler("upcoming", self._cmd_upcoming))
-        self.app.add_handler(CommandHandler("roi", self._cmd_roi))  # NEW: ROI tracking
+        self.app.add_handler(CommandHandler("roi", self._cmd_roi))
+        self.app.add_handler(CommandHandler("analyze", self._cmd_analyze))  # NEW: URL analysis
         
         # Guided Investigation Handler
         conv_handler = ConversationHandler(
@@ -496,4 +498,47 @@ _Source: {signal.news_source}_
             logger.error("roi_command_error", error=str(e))
             await update.message.reply_text(
                 "❌ Erro ao calcular ROI. Tenta novamente mais tarde."
+            )
+    
+    async def _cmd_analyze(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handler para /analyze <url> - analisa um mercado Polymarket."""
+        try:
+            # Check for URL argument
+            if not context.args:
+                await update.message.reply_text(
+                    "🔍 **Analyze Polymarket URL**\n\n"
+                    "Usage: `/analyze <polymarket_url>`\n\n"
+                    "Example:\n"
+                    "`/analyze https://polymarket.com/event/portugal-presidential-election`",
+                    parse_mode="Markdown"
+                )
+                return
+            
+            url = context.args[0]
+            
+            # Send "analyzing" message
+            msg = await update.message.reply_text("⏳ A analisar mercado...")
+            
+            # Analyze URL
+            analyzer = URLAnalyzer()
+            try:
+                analysis = await analyzer.analyze(url)
+            finally:
+                await analyzer.close()
+            
+            if not analysis:
+                await msg.edit_text(
+                    "❌ Não consegui analisar este URL.\n"
+                    "Verifica se é um URL válido do Polymarket."
+                )
+                return
+            
+            # Format and send
+            message = analyzer.format_telegram(analysis)
+            await msg.edit_text(message, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error("analyze_command_error", error=str(e))
+            await update.message.reply_text(
+                "❌ Erro ao analisar. Tenta novamente mais tarde."
             )
