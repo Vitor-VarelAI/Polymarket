@@ -1,121 +1,140 @@
 # ===========================================
-# ExaSignal - Mercados Monitorados
+# ExaSignal - Mercados de Alto Volume (Janeiro 2026)
 # ===========================================
-# IDs extraídos de polymarket.com/predictions/ai em 2026-01-03
-# Estes são EVENT SLUGS reais do Polymarket
+# Atualizado: 2026-01-08
+# Foco: Mercados com alta liquidez e atividade whale
 # ===========================================
 
 markets:
-  # --- AI Models & Coding ---
-  - market_id: "which-company-will-have-the-best-ai-model-for-coding-on-march-31"
-    market_name: "Which company will have the best AI model for coding on March 31?"
-    yes_definition: "OpenAI, Google ou outro lidera em coding"
-    no_definition: "Anthropic Claude mantém liderança"
-    category: "AI"
-    tags: ["AI", "coding", "models", "benchmarks"]
+  # ============================================
+  # 🔥 GEOPOLITICS (Highest Volume - $10M+)
+  # ============================================
+  
+  - market_id: "will-the-us-invade-venezuela"
+    market_name: "Will the US invade Venezuela?"
+    yes_definition: "US military action in Venezuela"
+    no_definition: "No military intervention"
+    category: "geopolitics"
+    tags: ["Venezuela", "US", "military", "geopolitics"]
 
-  - market_id: "which-companys-ai-will-first-hit-1500-on-chatbot-arena-by-june-30"
-    market_name: "Which company's AI will first hit 1500 on Chatbot Arena by June 30?"
-    yes_definition: "Google ou OpenAI alcança 1500 primeiro"
-    no_definition: "Nenhum atinge 1500 até junho"
-    category: "AI"
-    tags: ["AI", "benchmarks", "Chatbot Arena"]
+  - market_id: "will-maduro-leave-office-by-january-31"
+    market_name: "Will Maduro leave office by January 31?"
+    yes_definition: "Maduro removed from power"
+    no_definition: "Maduro remains in power"
+    category: "geopolitics"
+    tags: ["Venezuela", "Maduro", "politics"]
 
-  - market_id: "chatbot-arena-how-high-will-ai-score-by-december-31"
-    market_name: "Chatbot Arena: How high will AI score by December 31?"
-    yes_definition: "AI atinge score alto (1500+)"
-    no_definition: "Scores ficam moderados"
-    category: "AI"
-    tags: ["AI", "benchmarks", "Chatbot Arena"]
+  - market_id: "israel-strikes-iran-by-january-31-2026"
+    market_name: "Israel strikes Iran by January 31, 2026?"
+    yes_definition: "Israel launches military strike on Iran"
+    no_definition: "No Israeli strike on Iran"
+    category: "geopolitics"
+    tags: ["Israel", "Iran", "military", "Middle East"]
 
-  # --- AGI & Frontier ---
-  - market_id: "openai-announces-it-has-achieved-agi-before-2027"
-    market_name: "OpenAI announces it has achieved AGI before 2027?"
-    yes_definition: "OpenAI faz anúncio de AGI antes de 2027"
-    no_definition: "Nenhum anúncio de AGI"
-    category: "frontier_tech"
-    tags: ["OpenAI", "AGI", "frontier"]
+  # ============================================
+  # 💵 ECONOMICS & FED (Volume: $49M+)
+  # ============================================
+  
+  - market_id: "fed-holds-interest-rates-january-2026"
+    market_name: "Fed holds interest rates in January 2026?"
+    yes_definition: "Federal Reserve maintains current rates"
+    no_definition: "Fed cuts or raises rates"
+    category: "economics"
+    tags: ["Fed", "interest rates", "economics", "FOMC"]
 
-  # --- Gemini Benchmarks ---
-  - market_id: "google-gemini-3-score-on-humanitys-last-exam-by-january-31"
-    market_name: "Google Gemini 3 score on Humanity's Last Exam by January 31?"
-    yes_definition: "Gemini 3 atinge 40%+ no HLE"
-    no_definition: "Score abaixo de 40%"
-    category: "AI"
-    tags: ["Google", "Gemini", "benchmarks", "HLE"]
+  - market_id: "supreme-court-rules-tariffs-unconstitutional"
+    market_name: "Supreme Court rules federal tariffs unconstitutional?"
+    yes_definition: "SCOTUS strikes down tariffs"
+    no_definition: "Tariffs upheld"
+    category: "politics"
+    tags: ["Supreme Court", "tariffs", "legal"]
 
-  # --- xAI / Grok ---
-  - market_id: "grok-4pt20-released-on"
-    market_name: "Grok 4.20 released on March 31?"
-    yes_definition: "Grok 4.20 lançado na data"
-    no_definition: "Sem lançamento"
-    category: "AI"
-    tags: ["xAI", "Grok", "Elon Musk"]
+  # ============================================
+  # 🇺🇸 US POLITICS (Consistently High Volume)
+  # ============================================
+  
+  - market_id: "trump-approval-rating-february-2026"
+    market_name: "Trump approval rating above 50% in February 2026?"
+    yes_definition: "Approval above 50%"
+    no_definition: "Approval below 50%"
+    category: "politics"
+    tags: ["Trump", "approval", "politics"]
 
-  # --- Tesla & Self-Driving ---
-  - market_id: "tesla-launches-unsupervised-full-self-driving-fsd-by"
-    market_name: "Tesla launches unsupervised full self driving (FSD) by March 31?"
-    yes_definition: "Tesla lança FSD não supervisionado"
-    no_definition: "FSD permanece supervisionado"
-    category: "frontier_tech"
-    tags: ["Tesla", "FSD", "self-driving", "Elon Musk"]
+  - market_id: "biden-announces-2028-run"
+    market_name: "Biden announces 2028 presidential run?"
+    yes_definition: "Biden announces candidacy"
+    no_definition: "No announcement"
+    category: "politics"
+    tags: ["Biden", "2028", "election"]
 
-  - market_id: "will-tesla-launch-robotaxis-in-california-by-june-30"
-    market_name: "Will Tesla launch robotaxis in California by June 30?"
-    yes_definition: "Tesla lança robotaxis na Califórnia"
-    no_definition: "Sem lançamento de robotaxis"
-    category: "frontier_tech"
-    tags: ["Tesla", "robotaxi", "California"]
+  # ============================================
+  # 🏠 REAL ESTATE (New Markets - High Liquidity)
+  # ============================================
+  
+  - market_id: "us-home-prices-increase-q1-2026"
+    market_name: "US home prices increase in Q1 2026?"
+    yes_definition: "Home prices rise"
+    no_definition: "Home prices fall or flat"
+    category: "real_estate"
+    tags: ["real estate", "housing", "prices"]
 
-  # --- Waymo ---
-  - market_id: "which-cities-will-waymo-launch-in-by-june-30"
-    market_name: "Which cities will Waymo launch in by June 30?"
-    yes_definition: "Waymo expande para novas cidades"
-    no_definition: "Expansão limitada"
-    category: "frontier_tech"
-    tags: ["Waymo", "autonomous", "expansion"]
-
-  # --- OpenAI Business ---
-  - market_id: "openai-ipo-by"
-    market_name: "OpenAI IPO by June 30?"
-    yes_definition: "OpenAI faz IPO até junho 2026"
-    no_definition: "Continua privada"
-    category: "AI"
-    tags: ["OpenAI", "IPO", "business"]
-
-  - market_id: "will-conrad-leave-openai-by-december-31-2026"
-    market_name: "Will Conrad Kramer leave OpenAI by December 31, 2026?"
-    yes_definition: "Conrad Kramer sai da OpenAI"
-    no_definition: "Permanece na empresa"
-    category: "AI"
-    tags: ["OpenAI", "leadership"]
-
-  # --- Anthropic ---
-  - market_id: "anthropic-ipo-closing-market-cap"
-    market_name: "Anthropic IPO Closing Market Cap"
-    yes_definition: "Anthropic faz IPO com market cap elevado"
-    no_definition: "IPO não acontece ou market cap baixo"
-    category: "AI"
-    tags: ["Anthropic", "IPO", "business"]
-
-  # --- CRYPTO ---
+  # ============================================
+  # 🪙 CRYPTO (Active Trading)
+  # ============================================
+  
   - market_id: "bitcoin-above-150000-on-june-30"
     market_name: "Bitcoin above $150,000 on June 30?"
-    yes_definition: "BTC atinge $150k+"
-    no_definition: "BTC abaixo de $150k"
-    category: "Crypto"
+    yes_definition: "BTC above $150k"
+    no_definition: "BTC below $150k"
+    category: "crypto"
     tags: ["Bitcoin", "BTC", "price"]
 
   - market_id: "ethereum-above-10000-by-december-31"
     market_name: "Ethereum above $10,000 by December 31?"
-    yes_definition: "ETH atinge $10k+"
-    no_definition: "ETH abaixo de $10k"
-    category: "Crypto"
+    yes_definition: "ETH above $10k"
+    no_definition: "ETH below $10k"
+    category: "crypto"
     tags: ["Ethereum", "ETH", "price"]
 
   - market_id: "solana-flips-ethereum-market-cap-by-2027"
     market_name: "Solana flips Ethereum market cap by 2027?"
-    yes_definition: "SOL ultrapa​ssa ETH em market cap"
-    no_definition: "ETH mantém posição"
-    category: "Crypto"
-    tags: ["Solana", "SOL", "Ethereum", "ETH"]
+    yes_definition: "SOL market cap exceeds ETH"
+    no_definition: "ETH maintains lead"
+    category: "crypto"
+    tags: ["Solana", "Ethereum", "market cap"]
+
+  # ============================================
+  # 🚗 TECH & AUTONOMOUS (Medium-High Volume)
+  # ============================================
+  
+  - market_id: "tesla-launches-unsupervised-full-self-driving-fsd-by"
+    market_name: "Tesla launches unsupervised FSD by March 31?"
+    yes_definition: "Tesla launches unsupervised FSD"
+    no_definition: "FSD remains supervised"
+    category: "tech"
+    tags: ["Tesla", "FSD", "autonomous"]
+
+  - market_id: "will-tesla-launch-robotaxis-in-california-by-june-30"
+    market_name: "Will Tesla launch robotaxis in California by June 30?"
+    yes_definition: "Tesla robotaxis launch"
+    no_definition: "No robotaxi launch"
+    category: "tech"
+    tags: ["Tesla", "robotaxi", "autonomous"]
+
+  # ============================================
+  # 🤖 AI (Keep Best Ones)
+  # ============================================
+  
+  - market_id: "openai-announces-it-has-achieved-agi-before-2027"
+    market_name: "OpenAI announces AGI before 2027?"
+    yes_definition: "OpenAI announces AGI achievement"
+    no_definition: "No AGI announcement"
+    category: "AI"
+    tags: ["OpenAI", "AGI", "frontier"]
+
+  - market_id: "openai-ipo-by"
+    market_name: "OpenAI IPO by June 30?"
+    yes_definition: "OpenAI goes public"
+    no_definition: "Remains private"
+    category: "AI"
+    tags: ["OpenAI", "IPO", "business"]
