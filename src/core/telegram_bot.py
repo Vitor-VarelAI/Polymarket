@@ -76,7 +76,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("health", self._cmd_health))
         self.app.add_handler(CommandHandler("signals", self._cmd_signals))
         self.app.add_handler(CommandHandler("stats", self._cmd_stats))
-        self.app.add_handler(CommandHandler("upcoming", self._cmd_upcoming))  # NEW
+        self.app.add_handler(CommandHandler("upcoming", self._cmd_upcoming))
+        self.app.add_handler(CommandHandler("roi", self._cmd_roi))  # NEW: ROI tracking
         
         # Guided Investigation Handler
         conv_handler = ConversationHandler(
@@ -483,4 +484,16 @@ _Source: {signal.news_source}_
             await update.message.reply_text(
                 "❌ Erro ao obter eventos. Tenta novamente mais tarde."
             )
-
+    
+    async def _cmd_roi(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handler para /roi - mostra ROI e lucro/prejuízo."""
+        try:
+            roi_stats = await self.performance_tracker.get_roi_stats()
+            message = self.performance_tracker.format_roi_telegram(roi_stats)
+            await update.message.reply_text(message, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error("roi_command_error", error=str(e))
+            await update.message.reply_text(
+                "❌ Erro ao calcular ROI. Tenta novamente mais tarde."
+            )

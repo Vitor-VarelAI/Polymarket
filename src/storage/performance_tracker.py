@@ -45,6 +45,10 @@ class PerformanceTracker:
                     signal_score INTEGER,
                     trigger_type TEXT,
                     
+                    -- Bet tracking (NEW for ROI)
+                    bet_amount REAL DEFAULT 0,
+                    payout REAL DEFAULT 0,
+                    
                     -- Resolution data (filled later)
                     resolved_at TIMESTAMP,
                     final_outcome TEXT,
@@ -54,6 +58,16 @@ class PerformanceTracker:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Try to add columns if table already exists (migration)
+            try:
+                await db.execute("ALTER TABLE signal_performance ADD COLUMN bet_amount REAL DEFAULT 0")
+            except:
+                pass
+            try:
+                await db.execute("ALTER TABLE signal_performance ADD COLUMN payout REAL DEFAULT 0")
+            except:
+                pass
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_signal_market 
                 ON signal_performance(market_id)
@@ -347,4 +361,138 @@ class PerformanceTracker:
             lines.append("_No resolved signals yet._")
         
         return "\n".join(lines)
-
+    
+    # ==========================================
+    # ROI TRACKING (NEW)
+    # ==========================================
+    
+    async def log_bet(
+        self,
+        signal_id: int,
+        bet_amount: float
+    ) -> bool:
+        """
+        Record bet amount for a signal.
+        
+        Call this when user actually places a bet.
+        """
+        await self.init_db()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE signal_performance SET bet_amount = ? WHERE id = ?",
+                (bet_amount, signal_id)
+            )
+            await db.commit()
+            
+            logger.info("bet_logged", signal_id=signal_id, amount=bet_amount)
+            return True
+    
+    async def update_payout(
+        self,
+        market_id: str,
+        payout_multiplier: float = 2.0  # Typical binary market payout
+    ) -> int:
+        """
+        Update payouts for resolved signals.
+        
+        For winning bets: payout = bet_amount * multiplier
+        For losing bets: payout = 0
+        """
+        await self.init_db()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            # Update winning bets
+            cursor = await db.execute(
+                """UPDATE signal_performance 
+                   SET payout = bet_amount * ?
+                   WHERE market_id = ? AND was_correct = 1 AND bet_amount > 0""",
+                (payout_multiplier, market_id)
+            )
+            wins_updated = cursor.rowcount
+            
+            # Losing bets already have payout = 0 (default)
+            await db.commit()
+            
+            return wins_updated
+    
+    async def get_roi_stats(self) -> Dict:
+        """
+        Calculate ROI statistics.
+        
+        Returns:
+            Dict with total_bet, total_payout, profit, roi_percent
+        """
+        await self.init_db()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            # Total bet amount
+            cursor = await db.execute(
+                "SELECT COALESCE(SUM(bet_amount), 0) FROM signal_performance WHERE bet_amount > 0"
+            )
+            total_bet = (await cursor.fetchone())[0]
+            
+            # Total payout (resolved only)
+            cursor = await db.execute(
+                """SELECT COALESCE(SUM(payout), 0) FROM signal_performance 
+                   WHERE resolved_at IS NOT NULL AND bet_amount > 0"""
+            )
+            total_payout = (await cursor.fetchone())[0]
+            
+            # Pending bets (not resolved)
+            cursor = await db.execute(
+                """SELECT COALESCE(SUM(bet_amount), 0) FROM signal_performance 
+                   WHERE resolved_at IS NULL AND bet_amount > 0"""
+            )
+            pending_bet = (await cursor.fetchone())[0]
+            
+            # Count bets
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM signal_performance WHERE bet_amount > 0"
+            )
+            total_bets = (await cursor.fetchone())[0]
+            
+            # Calculate profit and ROI
+            resolved_bet = total_bet - pending_bet
+            profit = total_payout - resolved_bet
+            roi_percent = (profit / resolved_bet * 100) if resolved_bet > 0 else 0
+            
+            return {
+                "total_bet": round(total_bet, 2),
+                "total_payout": round(total_payout, 2),
+                "pending_bet": round(pending_bet, 2),
+                "profit": round(profit, 2),
+                "roi_percent": round(roi_percent, 1),
+                "total_bets": total_bets
+            }
+    
+    def format_roi_telegram(self, roi_stats: Dict) -> str:
+        """Format ROI stats for Telegram."""
+        profit = roi_stats['profit']
+        roi = roi_stats['roi_percent']
+        
+        # Profit emoji
+        if profit > 0:
+            emoji = "📈"
+            status = "🟢"
+        elif profit < 0:
+            emoji = "📉"
+            status = "🔴"
+        else:
+            emoji = "➖"
+            status = "⚪"
+        
+        lines = [
+            f"{emoji} **ROI Tracking**",
+            "",
+            f"**💰 Total Bet:** ${roi_stats['total_bet']:.2f}",
+            f"**💵 Total Payout:** ${roi_stats['total_payout']:.2f}",
+            f"**⏳ Pending:** ${roi_stats['pending_bet']:.2f}",
+            "",
+            f"**{status} Profit:** ${profit:+.2f}",
+            f"**📊 ROI:** {roi:+.1f}%",
+            "",
+            f"_Based on {roi_stats['total_bets']} bets_"
+        ]
+        
+        return "\n".join(lines)
