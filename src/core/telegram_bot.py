@@ -26,6 +26,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from src.core.market_manager import MarketManager
 from src.core.alert_generator import AlertGenerator
 from src.core.investigator import Investigator
+from src.core.event_scheduler import EventScheduler
 from src.storage.user_db import UserDB
 from src.storage.rate_limiter import RateLimiter
 from src.storage.performance_tracker import PerformanceTracker
@@ -47,7 +48,8 @@ class TelegramBot:
         user_db: UserDB = None,
         investigator: Investigator = None,
         research_agent = None,  # ResearchAgent opcional (Dexter-style)
-        performance_tracker: PerformanceTracker = None  # NEW: Track signal performance
+        performance_tracker: PerformanceTracker = None,
+        event_scheduler: EventScheduler = None  # NEW: Event scheduler
     ):
         """Inicializa bot com dependências."""
         self.market_manager = market_manager
@@ -55,7 +57,8 @@ class TelegramBot:
         self.user_db = user_db or UserDB()
         self.investigator = investigator # Injetado depois if None
         self.research_agent = research_agent  # Dexter-style agent
-        self.performance_tracker = performance_tracker or PerformanceTracker()  # NEW
+        self.performance_tracker = performance_tracker or PerformanceTracker()
+        self.event_scheduler = event_scheduler  # Will be injected
         
         self.app: Optional[Application] = None
         self.bot: Optional[Bot] = None
@@ -72,7 +75,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("settings", self._cmd_settings))
         self.app.add_handler(CommandHandler("health", self._cmd_health))
         self.app.add_handler(CommandHandler("signals", self._cmd_signals))
-        self.app.add_handler(CommandHandler("stats", self._cmd_stats))  # NEW
+        self.app.add_handler(CommandHandler("stats", self._cmd_stats))
+        self.app.add_handler(CommandHandler("upcoming", self._cmd_upcoming))  # NEW
         
         # Guided Investigation Handler
         conv_handler = ConversationHandler(
@@ -457,3 +461,26 @@ _Source: {signal.news_source}_
             await update.message.reply_text(
                 "❌ Erro ao obter estatísticas. Tenta novamente mais tarde."
             )
+    
+    async def _cmd_upcoming(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handler para /upcoming - mostra próximos eventos e timing de análise."""
+        try:
+            if not self.event_scheduler:
+                await update.message.reply_text(
+                    "⚠️ Event scheduler não configurado."
+                )
+                return
+            
+            # Refresh schedule if needed
+            await self.event_scheduler.refresh_schedule()
+            
+            # Format and send
+            message = self.event_scheduler.format_upcoming_telegram(limit=5)
+            await update.message.reply_text(message, parse_mode="Markdown")
+            
+        except Exception as e:
+            logger.error("upcoming_command_error", error=str(e))
+            await update.message.reply_text(
+                "❌ Erro ao obter eventos. Tenta novamente mais tarde."
+            )
+
