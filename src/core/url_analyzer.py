@@ -97,6 +97,8 @@ class URLAnalyzer:
             
             # Parse candidates/markets
             candidates = []
+            is_binary = len(event.get("markets", [])) == 1  # Single market = binary Yes/No
+            
             for market in event.get("markets", []):
                 if not market.get("active"):
                     continue
@@ -115,8 +117,19 @@ class URLAnalyzer:
                 if odds < 0.001:  # Skip negligible candidates
                     continue
                 
+                # Get candidate name
+                if is_binary:
+                    # Binary market: use "Yes" as name, show question
+                    name = "Yes"
+                else:
+                    # Multi-candidate: use groupItemTitle or question
+                    name = market.get("groupItemTitle") or market.get("question", "Unknown")
+                    # Clean up name if it's a question
+                    if name.startswith("Will "):
+                        name = name.replace("Will ", "").split(" win")[0].strip()
+                
                 candidates.append({
-                    "name": market.get("groupItemTitle", market.get("question", "Unknown")),
+                    "name": name,
                     "odds": odds * 100,  # Convert to percentage
                     "volume_24h": market.get("volume24hr", 0),
                     "change_week": market.get("oneWeekPriceChange", 0) * 100 if market.get("oneWeekPriceChange") else 0,
@@ -127,7 +140,7 @@ class URLAnalyzer:
             candidates.sort(key=lambda x: x["odds"], reverse=True)
             
             # Generate recommendation
-            recommendation = self._generate_recommendation(candidates, end_date)
+            recommendation = self._generate_recommendation(candidates, end_date, is_binary)
             
             analysis = MarketAnalysis(
                 event_title=event.get("title", "Unknown"),
@@ -146,7 +159,7 @@ class URLAnalyzer:
             logger.error("url_analysis_error", slug=slug, error=str(e))
             return None
     
-    def _generate_recommendation(self, candidates: List[Dict], end_date: Optional[datetime]) -> str:
+    def _generate_recommendation(self, candidates: List[Dict], end_date: Optional[datetime], is_binary: bool = False) -> str:
         """Generate a recommendation including WHO to bet on."""
         if not candidates:
             return "⚠️ No active candidates found."
@@ -159,16 +172,52 @@ class URLAnalyzer:
             delta = end_date.replace(tzinfo=None) - datetime.now()
             days_left = max(0, delta.days)
         
-        # Find value bets
-        # 1. Rising candidates (positive momentum)
-        risers = [c for c in candidates if c.get("change_week", 0) > 5 and c["odds"] < 40]
-        # 2. Stable favorites
-        stable_fav = [c for c in candidates if c["odds"] > 40 and abs(c.get("change_week", 0)) < 5]
-        # 3. High momentum plays
-        movers = sorted([c for c in candidates if abs(c.get("change_week", 0)) > 5], 
-                       key=lambda x: x.get("change_week", 0), reverse=True)
-        
         lines = []
+        
+        # Binary market handling
+        if is_binary:
+            yes_odds = top["odds"]
+            no_odds = 100 - yes_odds
+            
+            lines.append(f"📊 **Yes**: {yes_odds:.1f}% | **No**: {no_odds:.1f}%")
+            lines.append(f"⏰ {days_left} days until resolution")
+            
+            # Suggest based on odds
+            lines.append("")
+            lines.append("**🎯 BET SUGGESTION:**")
+            
+            change = top.get("change_week", 0)
+            
+            if yes_odds > 50:
+                payout = 1.50 * (100 / yes_odds)
+                lines.append(f"→ **YES** at {yes_odds:.1f}%")
+                lines.append(f"  🛡️ Market favorite")
+                lines.append(f"  $1.50 bet → ${payout:.2f} if wins")
+            elif no_odds > 50:
+                payout = 1.50 * (100 / no_odds)
+                lines.append(f"→ **NO** at {no_odds:.1f}%")
+                lines.append(f"  🛡️ Market favorite")
+                lines.append(f"  $1.50 bet → ${payout:.2f} if wins")
+            else:
+                if change > 5:
+                    payout = 1.50 * (100 / yes_odds)
+                    lines.append(f"→ **YES** at {yes_odds:.1f}%")
+                    lines.append(f"  📈 Momentum rising (+{change:.1f}% 7d)")
+                    lines.append(f"  $1.50 bet → ${payout:.2f} if wins")
+                elif change < -5:
+                    payout = 1.50 * (100 / no_odds)
+                    lines.append(f"→ **NO** at {no_odds:.1f}%")
+                    lines.append(f"  📈 Momentum falling (Yes {change:.1f}% 7d)")
+                    lines.append(f"  $1.50 bet → ${payout:.2f} if wins")
+                else:
+                    lines.append(f"→ **SKIP** - 50/50 odds, wait for clearer signal")
+            
+            return "\n".join(lines)
+        
+        # Multi-candidate market handling
+        # Find value bets
+        risers = [c for c in candidates if c.get("change_week", 0) > 5 and c["odds"] < 40]
+        stable_fav = [c for c in candidates if c["odds"] > 40 and abs(c.get("change_week", 0)) < 5]
         
         # Favorite status
         if top["odds"] > 50:
@@ -176,7 +225,6 @@ class URLAnalyzer:
         else:
             lines.append(f"🤔 Close race - no clear favorite")
         
-        # Time
         lines.append(f"⏰ {days_left} days until resolution")
         
         # SPECIFIC BET RECOMMENDATION
@@ -190,11 +238,11 @@ class URLAnalyzer:
         if risers:
             best_bet = risers[0]
             bet_reason = f"📈 MOMENTUM PLAY - up {best_bet['change_week']:+.1f}% this week"
-        # Priority 2: Stable favorite (safe bet)
+        # Priority 2: Stable favorite
         elif stable_fav:
             best_bet = stable_fav[0]
             bet_reason = "🛡️ SAFE PLAY - stable favorite"
-        # Priority 3: Just the top candidate
+        # Priority 3: Top candidate
         else:
             best_bet = top
             bet_reason = "📊 LEADING ODDS"
