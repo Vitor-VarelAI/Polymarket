@@ -81,9 +81,11 @@ class ArbitrageOpportunity:
 
 📊 *Market A:* {self.pair.market_a_name[:50]}...
    Odds: {self.odds_a:.1f}%
+   🔗 [Open Market A](https://polymarket.com/event/{self.pair.market_a_id})
 
 📊 *Market B:* {self.pair.market_b_name[:50]}...
    Odds: {self.odds_b:.1f}%
+   🔗 [Open Market B](https://polymarket.com/event/{self.pair.market_b_id})
 
 🔗 *Correlation:* {self.pair.correlation_type}
 📏 *Expected:* {self.pair.expected_relationship}
