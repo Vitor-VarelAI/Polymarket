@@ -38,7 +38,8 @@ from src.api.exa_client import ExaClient
 from src.api.groq_client import GroqClient
 from src.api.finnhub_client import FinnhubClient  # NEW: Finnhub for fast news
 from src.core.research_agent import ResearchAgent
-from src.core.correlation_detector import CorrelationDetector  # NEW: Arbitrage detection
+from src.core.correlation_detector import CorrelationDetector  # Arbitrage detection
+from src.core.safe_bets_scanner import SafeBetsScanner  # NEW: Safe bets (99% odds)
 from src.storage.rate_limiter import RateLimiter
 from src.storage.user_db import UserDB
 from src.utils.config import Config
@@ -141,6 +142,18 @@ class ExaSignal:
             scan_interval=600,  # 10 minutes (more intensive AI usage)
         )
         
+        # NEW: Safe Bets Scanner (SwissTony vacuum cleaner strategy)
+        # Finds markets with 97%+ odds for small consistent profits
+        self.safe_bets_scanner = SafeBetsScanner(
+            gamma=self.gamma,
+            callback=None,  # Set in start() after bot is ready
+            min_odds_threshold=97.0,  # Only 97%+ certainty
+            min_liquidity=1000,  # Minimum $1k liquidity
+            min_expected_value=0.5,  # Minimum 0.5% EV
+            scan_interval=1800,  # 30 minutes (less frequent)
+            excluded_categories=["Sports"],  # Sports too volatile during games
+        )
+        
         # Estado
         self._running = False
     
@@ -233,6 +246,29 @@ class ExaSignal:
                    edge=opportunity.edge,
                    sent_to=sent_count)
     
+    async def _broadcast_safe_bet(self, safe_bet):
+        """Broadcast safe bet opportunity to Telegram users."""
+        users = await self.telegram_bot.user_db.get_active_users()
+        message = safe_bet.to_telegram()
+        
+        sent_count = 0
+        for user in users:
+            try:
+                await self.telegram_bot.bot.send_message(
+                    chat_id=user.user_id,
+                    text=message.strip(),
+                    parse_mode="Markdown",
+                    disable_web_page_preview=False  # Show market link preview
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error("safe_bet_broadcast_error", user_id=user.user_id, error=str(e))
+        
+        logger.info("safe_bet_broadcast_complete", 
+                   market=safe_bet.market_name[:30],
+                   entry_price=safe_bet.entry_price,
+                   sent_to=sent_count)
+    
     async def start(self):
         """Inicia o sistema."""
         logger.info("exasignal_starting", markets=len(self.market_manager.markets))
@@ -252,6 +288,10 @@ class ExaSignal:
         self.correlation_detector.callback = self._broadcast_arbitrage
         logger.info("correlation_detector_callback_connected")
         
+        # Connect safe bets callback to Telegram broadcast
+        self.safe_bets_scanner.callback = self._broadcast_safe_bet
+        logger.info("safe_bets_scanner_callback_connected")
+        
         # Iniciar polling do bot em background
         await self.telegram_bot.run_polling()
         
@@ -268,6 +308,13 @@ class ExaSignal:
                    min_edge=self.correlation_detector.min_edge,
                    scan_interval=self.correlation_detector.scan_interval)
         
+        # Start safe bets scanner in background (vacuum cleaner strategy)
+        asyncio.create_task(self.safe_bets_scanner.start_monitoring())
+        logger.info("safe_bets_scanner_started",
+                   min_odds=self.safe_bets_scanner.min_odds_threshold,
+                   min_liquidity=self.safe_bets_scanner.min_liquidity,
+                   scan_interval=self.safe_bets_scanner.scan_interval)
+        
         self._running = True
         logger.info("exasignal_started")
     
@@ -276,9 +323,10 @@ class ExaSignal:
         logger.info("exasignal_stopping")
         self._running = False
         
-        # Stop monitors
+        # Stop all monitors
         self.news_monitor.stop_monitoring()
         self.correlation_detector.stop_monitoring()
+        self.safe_bets_scanner.stop_monitoring()
         
         # Fechar conexões
         await self.telegram_bot.stop()
