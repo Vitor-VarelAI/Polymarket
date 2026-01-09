@@ -332,6 +332,13 @@ class ExaSignal:
         self.weather_scanner.callback = self._broadcast_weather_bet
         logger.info("weather_scanner_callback_connected")
         
+        # Inject scanner references for /debug command
+        self.telegram_bot.news_monitor = self.news_monitor
+        self.telegram_bot.correlation_detector = self.correlation_detector
+        self.telegram_bot.safe_bets_scanner = self.safe_bets_scanner
+        self.telegram_bot.weather_scanner = self.weather_scanner
+        logger.info("scanners_injected_to_telegram_bot")
+        
         # Iniciar polling do bot em background
         await self.telegram_bot.run_polling()
         

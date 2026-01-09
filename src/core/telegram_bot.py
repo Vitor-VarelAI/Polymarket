@@ -101,6 +101,13 @@ class TelegramBot:
         # NEW: Test and monitoring commands
         self.app.add_handler(CommandHandler("test_alert", self._cmd_test_alert))
         self.app.add_handler(CommandHandler("scanner_status", self._cmd_scanner_status))
+        self.app.add_handler(CommandHandler("debug", self._cmd_debug))
+        
+        # Scanner references (will be injected by ExaSignal)
+        self.news_monitor = None
+        self.correlation_detector = None
+        self.safe_bets_scanner = None
+        self.weather_scanner = None
     
     async def _cmd_test_alert(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Send a test alert to verify broadcasts are working."""
@@ -160,6 +167,84 @@ oportunidades que passem os filtros.
 _Use /test_alert para testar a conexão._
 """
         await update.message.reply_text(status_msg.strip(), parse_mode="Markdown")
+
+    async def _cmd_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Run diagnostic scan and show what each scanner finds."""
+        user_id = update.effective_user.id
+        
+        await update.message.reply_text("🔍 *A executar diagnóstico...*\nIsto pode demorar 30-60 segundos.", parse_mode="Markdown")
+        
+        results = []
+        
+        # Check if scanners are injected
+        if not self.news_monitor:
+            await update.message.reply_text("❌ Scanners não injetados. O sistema pode não ter arrancado corretamente.")
+            return
+        
+        try:
+            # 1. Check NewsMonitor status
+            news_status = "❌ Não disponível"
+            if self.news_monitor:
+                news_status = f"""✅ *NewsMonitor*
+   Running: {self.news_monitor._running}
+   Scans: {self.news_monitor.stats.get('scans', 0) if hasattr(self.news_monitor, 'stats') else 'N/A'}
+   Interval: {self.news_monitor.poll_interval}s"""
+            results.append(news_status)
+            
+            # 2. Check CorrelationDetector status
+            corr_status = "❌ Não disponível"
+            if self.correlation_detector:
+                stats = self.correlation_detector.stats if hasattr(self.correlation_detector, 'stats') else {}
+                corr_status = f"""✅ *CorrelationDetector*
+   Running: {self.correlation_detector._running}
+   Scans: {stats.get('scans', 0)}
+   Known pairs: {len(self.correlation_detector.known_pairs) if hasattr(self.correlation_detector, 'known_pairs') else 0}
+   Opportunities found: {stats.get('opportunities_found', 0)}"""
+            results.append(corr_status)
+            
+            # 3. Check SafeBetsScanner status
+            safe_status = "❌ Não disponível"
+            if self.safe_bets_scanner:
+                stats = self.safe_bets_scanner.stats if hasattr(self.safe_bets_scanner, 'stats') else {}
+                safe_status = f"""✅ *SafeBetsScanner*
+   Running: {self.safe_bets_scanner._running}
+   Scans: {stats.get('scans', 0)}
+   Markets checked: {stats.get('markets_checked', 0)}
+   Safe bets found: {stats.get('safe_bets_found', 0)}"""
+            results.append(safe_status)
+            
+            # 4. Check WeatherScanner status
+            weather_status = "❌ Não disponível"
+            if self.weather_scanner:
+                stats = self.weather_scanner.stats if hasattr(self.weather_scanner, 'stats') else {}
+                weather_status = f"""✅ *WeatherScanner*
+   Running: {self.weather_scanner._running}
+   Scans: {stats.get('scans', 0)}
+   Markets checked: {stats.get('markets_checked', 0)}
+   Value bets found: {stats.get('value_bets_found', 0)}
+   API calls: {stats.get('weather_api_calls', 0)}"""
+            results.append(weather_status)
+            
+            # Build final message
+            debug_msg = f"""
+🔍 *SCANNER DIAGNOSTICS*
+━━━━━━━━━━━━━━━━━━━━━
+
+{chr(10).join(results)}
+
+━━━━━━━━━━━━━━━━━━━━━
+💡 *Notas:*
+• Se Running = False, o scanner parou
+• Se Scans = 0, o scanner nunca correu
+• Se Markets checked = 0, não encontrou mercados
+
+⏰ Diagnóstico às {update.message.date.strftime('%H:%M:%S')} UTC
+"""
+            await update.message.reply_text(debug_msg.strip(), parse_mode="Markdown")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Erro no diagnóstico: {e}")
+            logger.error("debug_command_error", error=str(e))
 
     async def _cmd_investigate(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Inicia fluxo de investigação."""
