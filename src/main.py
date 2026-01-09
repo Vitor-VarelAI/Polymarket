@@ -26,7 +26,9 @@ from src.core.investigator import Investigator
 from src.core.alignment_scorer import AlignmentScorer
 from src.core.alert_generator import AlertGenerator
 from src.core.telegram_bot import TelegramBot
-from src.core.event_scheduler import EventScheduler  # NEW
+from src.core.event_scheduler import EventScheduler
+from src.core.news_monitor import NewsMonitor  # NEW: News monitoring
+from src.core.signal_generator import SignalGenerator  # NEW: Signal generation
 from src.api.gamma_client import GammaClient
 from src.api.clob_client import CLOBClient
 from src.api.newsapi_client import NewsAPIClient
@@ -34,6 +36,7 @@ from src.api.rss_client import RSSClient
 from src.api.arxiv_client import ArXivClient
 from src.api.exa_client import ExaClient
 from src.api.groq_client import GroqClient
+from src.api.finnhub_client import FinnhubClient  # NEW: Finnhub for fast news
 from src.core.research_agent import ResearchAgent
 from src.storage.rate_limiter import RateLimiter
 from src.storage.user_db import UserDB
@@ -60,6 +63,7 @@ class ExaSignal:
         self.rss = RSSClient()
         self.arxiv = ArXivClient()
         self.exa = ExaClient()
+        self.finnhub = FinnhubClient()  # NEW: Fast news from Finnhub
         
         # Detector
         self.whale_detector = WhaleDetector(
@@ -92,7 +96,7 @@ class ExaSignal:
             gamma=self.gamma
         )
         
-        # Event Scheduler (NEW - pre-event analysis)
+        # Event Scheduler (pre-event analysis)
         self.event_scheduler = EventScheduler(
             market_manager=self.market_manager,
             gamma_client=self.gamma
@@ -106,11 +110,94 @@ class ExaSignal:
             alert_generator=self.alert_generator,
             investigator=self.investigator,
             research_agent=self.research_agent,
-            event_scheduler=self.event_scheduler  # NEW
+            event_scheduler=self.event_scheduler
+        )
+        
+        # NEW: News Monitor for automatic signal detection
+        # Signal callback will be set after telegram_bot is ready
+        self.news_monitor = NewsMonitor(
+            newsapi=self.newsapi,
+            finnhub_client=self.finnhub,
+            groq=self.groq,
+            gamma=self.gamma,
+            search_func=self._search_markets_for_signal,
+            signal_callback=None,  # Set in start() after bot is ready
+            poll_interval_seconds=300,  # 5 minutes
+            min_score=70,
+            min_confidence=60,
+            max_news_age_minutes=30,
+            use_enriched=True
         )
         
         # Estado
         self._running = False
+    
+    async def _search_markets_for_signal(self, query: str, limit: int = 50):
+        """Search Polymarket for signal matching - combines events + markets."""
+        import httpx
+        
+        async with httpx.AsyncClient(base_url="https://gamma-api.polymarket.com", timeout=60) as client:
+            # Fetch both endpoints in parallel
+            async def get_events():
+                r = await client.get("/events", params={
+                    "limit": 500, 
+                    "active": "true",
+                    "order": "startDate",
+                    "ascending": "false"
+                })
+                return r.json() if r.status_code == 200 else []
+            
+            async def get_markets():
+                r = await client.get("/markets", params={
+                    "closed": "false", 
+                    "limit": 500,
+                    "order": "createdAt",
+                    "ascending": "false"
+                })
+                return r.json() if r.status_code == 200 else []
+            
+            events, markets = await asyncio.gather(get_events(), get_markets())
+            
+            # Combine all items
+            all_items = []
+            seen = set()
+            
+            for e in events:
+                slug = e.get("slug", "")
+                if slug and slug not in seen:
+                    seen.add(slug)
+                    all_items.append({
+                        "id": e.get("id", slug),
+                        "slug": slug,
+                        "title": e.get("title", ""),
+                        "name": e.get("title", ""),
+                        "description": e.get("description", "") or "",
+                    })
+            
+            for m in markets:
+                q = m.get("question", "")
+                if q and q not in seen:
+                    seen.add(q)
+                    all_items.append({
+                        "id": m.get("id", ""),
+                        "slug": m.get("slug", m.get("conditionId", "")),
+                        "title": q,
+                        "name": q,
+                        "description": m.get("description", "") or "",
+                    })
+            
+            # Filter by query keywords
+            query_lower = query.lower()
+            query_words = query_lower.split()
+            
+            results = []
+            for item in all_items:
+                text = (item.get("title", "") + " " + item.get("description", "")).lower()
+                if any(word in text for word in query_words):
+                    results.append(item)
+            
+            logger.debug("signal_search", query=query, found=len(results), total=len(all_items))
+            return results[:limit]
     
     async def start(self):
         """Inicia o sistema."""
@@ -123,8 +210,19 @@ class ExaSignal:
         # Iniciar bot Telegram (registrar handlers)
         await self.telegram_bot.start()
         
+        # Connect signal callback to Telegram broadcast AFTER bot is ready
+        self.news_monitor.signal_callback = self.telegram_bot.broadcast_signal
+        logger.info("news_monitor_callback_connected")
+        
         # Iniciar polling do bot em background
         await self.telegram_bot.run_polling()
+        
+        # Start news monitoring in background
+        asyncio.create_task(self.news_monitor.start_monitoring())
+        logger.info("news_monitor_started", 
+                   poll_interval=self.news_monitor.poll_interval,
+                   min_score=self.news_monitor.min_score,
+                   finnhub_available=self.news_monitor.finnhub.is_available if hasattr(self.news_monitor.finnhub, 'is_available') else 'unknown')
         
         self._running = True
         logger.info("exasignal_started")
@@ -133,6 +231,9 @@ class ExaSignal:
         """Para o sistema graciosamente."""
         logger.info("exasignal_stopping")
         self._running = False
+        
+        # Stop news monitor
+        self.news_monitor.stop_monitoring()
         
         # Fechar conexões
         await self.telegram_bot.stop()
