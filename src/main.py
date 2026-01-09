@@ -36,10 +36,11 @@ from src.api.rss_client import RSSClient
 from src.api.arxiv_client import ArXivClient
 from src.api.exa_client import ExaClient
 from src.api.groq_client import GroqClient
-from src.api.finnhub_client import FinnhubClient  # NEW: Finnhub for fast news
+from src.api.finnhub_client import FinnhubClient  # Finnhub for fast news
 from src.core.research_agent import ResearchAgent
 from src.core.correlation_detector import CorrelationDetector  # Arbitrage detection
-from src.core.safe_bets_scanner import SafeBetsScanner  # NEW: Safe bets (99% odds)
+from src.core.safe_bets_scanner import SafeBetsScanner  # Safe bets (99% odds)
+from src.core.weather_scanner import WeatherValueScanner  # NEW: Weather underdog bets
 from src.storage.rate_limiter import RateLimiter
 from src.storage.user_db import UserDB
 from src.utils.config import Config
@@ -152,6 +153,16 @@ class ExaSignal:
             min_expected_value=0.5,  # Minimum 0.5% EV
             scan_interval=1800,  # 30 minutes (less frequent)
             excluded_categories=["Sports"],  # Sports too volatile during games
+        )
+        
+        # NEW: Weather Value Scanner (Meteorological Bot strategy)
+        # Finds undervalued weather markets for $1 underdog bets
+        self.weather_scanner = WeatherValueScanner(
+            callback=None,  # Set in start() after bot is ready
+            max_entry_price=10.0,  # Only bet on ≤10¢ outcomes (underdogs)
+            min_edge=5.0,  # Minimum 5% edge over market
+            min_confidence=60,
+            scan_interval=3600,  # 1 hour (weather updates hourly)
         )
         
         # Estado
@@ -269,6 +280,30 @@ class ExaSignal:
                    entry_price=safe_bet.entry_price,
                    sent_to=sent_count)
     
+    async def _broadcast_weather_bet(self, weather_bet):
+        """Broadcast weather value bet to Telegram users."""
+        users = await self.telegram_bot.user_db.get_active_users()
+        message = weather_bet.to_telegram()
+        
+        sent_count = 0
+        for user in users:
+            try:
+                await self.telegram_bot.bot.send_message(
+                    chat_id=user.user_id,
+                    text=message.strip(),
+                    parse_mode="Markdown",
+                    disable_web_page_preview=False
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error("weather_broadcast_error", user_id=user.user_id, error=str(e))
+        
+        logger.info("weather_bet_broadcast_complete", 
+                   market=weather_bet.market_name[:30],
+                   entry_price=weather_bet.entry_price,
+                   edge=weather_bet.edge,
+                   sent_to=sent_count)
+    
     async def start(self):
         """Inicia o sistema."""
         logger.info("exasignal_starting", markets=len(self.market_manager.markets))
@@ -291,6 +326,10 @@ class ExaSignal:
         # Connect safe bets callback to Telegram broadcast
         self.safe_bets_scanner.callback = self._broadcast_safe_bet
         logger.info("safe_bets_scanner_callback_connected")
+        
+        # Connect weather scanner callback to Telegram broadcast
+        self.weather_scanner.callback = self._broadcast_weather_bet
+        logger.info("weather_scanner_callback_connected")
         
         # Iniciar polling do bot em background
         await self.telegram_bot.run_polling()
@@ -315,6 +354,13 @@ class ExaSignal:
                    min_liquidity=self.safe_bets_scanner.min_liquidity,
                    scan_interval=self.safe_bets_scanner.scan_interval)
         
+        # Start weather value scanner in background (meteorological bot strategy)
+        asyncio.create_task(self.weather_scanner.start_monitoring())
+        logger.info("weather_scanner_started",
+                   max_entry_price=self.weather_scanner.max_entry_price,
+                   min_edge=self.weather_scanner.min_edge,
+                   scan_interval=self.weather_scanner.scan_interval)
+        
         self._running = True
         logger.info("exasignal_started")
     
@@ -327,6 +373,7 @@ class ExaSignal:
         self.news_monitor.stop_monitoring()
         self.correlation_detector.stop_monitoring()
         self.safe_bets_scanner.stop_monitoring()
+        self.weather_scanner.stop_monitoring()
         
         # Fechar conexões
         await self.telegram_bot.stop()
