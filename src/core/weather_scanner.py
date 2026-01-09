@@ -4,18 +4,20 @@ Finds undervalued weather markets for $1 bets.
 
 Strategy (inspired by the meteorological bot):
 - Only bet on outcomes with odds ≤10¢ (10% or less)
-- Use real weather API data to find mispriced markets
+- Use MULTIPLE weather APIs for consensus forecasting
 - Focus on daily weather markets (quick resolution)
 - $1 bets = 10 shares at 10¢ each
 - High risk, high reward (18,000%+ possible)
 
-Weather Data Sources:
-1. Open-Meteo (free, no API key)
-2. Weather.gov (free, US only)
+Weather Data Sources (Multi-API Consensus):
+1. Tomorrow.io - Best accuracy, hourly data
+2. OpenWeatherMap - Global coverage
+3. WeatherAPI.com - Very accurate
+4. Open-Meteo - Free fallback
 
 Flow:
 1. Fetch weather markets from Polymarket
-2. Get real weather forecasts from APIs
+2. Get consensus forecasts from MULTIPLE sources
 3. Compare market odds vs forecast probability
 4. Alert when market is underpriced (cheap outcome + higher real probability)
 """
@@ -26,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 import json
 import re
 
+from src.api.weather_client import WeatherClient, ConsensusForecast
 from src.utils.logger import logger
 
 
@@ -105,11 +108,21 @@ class WeatherBet:
         }
     
     def to_telegram(self) -> str:
-        """Format for Telegram notification."""
+        """Format for Telegram notification with detailed context."""
         risk_emoji = {"extreme": "🔴", "high": "🟠", "medium": "🟡"}.get(self.risk_level, "⚪")
         
         # Calculate shares per $1
         shares_per_dollar = int(100 / self.entry_price) if self.entry_price > 0 else 0
+        
+        # Format forecast details
+        forecast_high = self.forecast_data.get("high_f", "N/A")
+        forecast_low = self.forecast_data.get("low_f", "N/A")
+        target = self.forecast_data.get("target_f", "N/A")
+        sources_count = self.forecast_data.get("num_sources", 1)
+        agreement = self.forecast_data.get("agreement_score", 0)
+        sources_list = self.forecast_data.get("sources_used", ["Open-Meteo"])
+        
+        sources_emoji = "🌡️" * min(sources_count, 4)
         
         return f"""
 🌦️ *WEATHER VALUE BET* {risk_emoji}
@@ -117,30 +130,45 @@ class WeatherBet:
 📍 *Location:* {self.location}
 📅 *Resolves:* {self.resolve_date}
 
-📊 *Market:* {self.market_name[:50]}...
-🎯 *Bet:* {self.bet_target}
+📊 *Market Question:*
+_{self.market_name[:70]}_
 
-💰 *Entry Price:* {self.entry_price:.1f}¢ per share
-📈 *$1 bet = {shares_per_dollar} shares*
+🎯 *Our Bet:* {self.bet_target}
 
-⚖️ *Odds Analysis:*
+━━━━━━━━━━━━━━━━━━━━━
+💰 *TRADE DETAILS*
+━━━━━━━━━━━━━━━━━━━━━
+   Entry: *{self.entry_price:.1f}¢* per share
+   $1 gets you: *{shares_per_dollar} shares*
+   
+   If you WIN: *${self.potential_return:.2f}*
+   Profit: *{(self.potential_return - 1) * 100:.0f}%* 🎉
+
+━━━━━━━━━━━━━━━━━━━━━
+📡 *WEATHER FORECAST* {sources_emoji}
+━━━━━━━━━━━━━━━━━━━━━
+   🌡️ Tomorrow's High: *{forecast_high}°F*
+   🌡️ Tomorrow's Low: *{forecast_low}°F*
+   🎯 Target Temp: *{target}°F*
+   
+   Sources: {', '.join(sources_list)}
+   Agreement: *{agreement:.0f}%*
+
+━━━━━━━━━━━━━━━━━━━━━
+⚖️ *EDGE ANALYSIS*
+━━━━━━━━━━━━━━━━━━━━━
    Market says: {self.market_odds:.1f}%
-   Forecast says: {self.forecast_probability:.1f}%
-   *Edge: +{self.edge:.1f}%*
+   Our forecast: *{self.forecast_probability:.1f}%*
+   🔥 *Edge: +{self.edge:.1f}%*
 
-💵 *If wins:*
-   $1 → ${self.potential_return:.2f}
-   ({(self.potential_return - 1) * 100:.0f}% profit)
-
-📡 *Source:* {self.forecast_source}
 🎲 *Confidence:* {self.confidence}%
+⚠️ *Risk Level:* {self.risk_level.upper()}
 
-⚠️ *Risk:* {self.risk_level.upper()}
-_Underdog bet - high volatility!_
+_Underdog bet - bet only what you can lose!_
 
-🔗 polymarket.com/event/{self.slug}
+🔗 [Open Market](https://polymarket.com/event/{self.slug})
 
-⏰ {self.timestamp[:19]}
+⏰ {self.timestamp[:16]} UTC
 """
 
 
@@ -171,6 +199,9 @@ class WeatherValueScanner:
         self.min_confidence = min_confidence
         self.scan_interval = scan_interval
         
+        # Multi-source weather client
+        self.weather_client = WeatherClient()
+        
         self.found_bets: List[WeatherBet] = []
         self.seen_markets: set = set()
         self._running = False
@@ -198,6 +229,15 @@ class WeatherValueScanner:
             "london": (51.5074, -0.1278),
             "paris": (48.8566, 2.3522),
             "tokyo": (35.6762, 139.6503),
+            "houston": (29.7604, -95.3698),
+            "philadelphia": (39.9526, -75.1652),
+            "philly": (39.9526, -75.1652),
+            "san diego": (32.7157, -117.1611),
+            "austin": (30.2672, -97.7431),
+            "orlando": (28.5383, -81.3792),
+            "detroit": (42.3314, -83.0458),
+            "minneapolis": (44.9778, -93.2650),
+            "portland": (45.5152, -122.6784),
         }
         
         # Stats
@@ -206,7 +246,12 @@ class WeatherValueScanner:
             "markets_checked": 0,
             "value_bets_found": 0,
             "weather_api_calls": 0,
+            "sources_used": [],
         }
+        
+        logger.info("weather_scanner_initialized",
+                   sources=self.weather_client.sources_available,
+                   cities_supported=len(self.city_coords))
     
     async def fetch_weather_forecast(self, lat: float, lon: float, days: int = 3) -> Optional[Dict]:
         """
@@ -430,7 +475,7 @@ class WeatherValueScanner:
         return markets[:limit]
     
     async def analyze_market(self, market: dict) -> Optional[WeatherBet]:
-        """Analyze a weather market for value betting opportunity."""
+        """Analyze a weather market for value betting opportunity using multi-source consensus."""
         market_name = market.get("name", "")
         yes_odds = market.get("yes_odds", 50)
         no_odds = market.get("no_odds", 50)
@@ -463,30 +508,30 @@ class WeatherValueScanner:
         
         direction, target_temp = temp_data
         
-        # Fetch weather forecast
-        forecast = await self.fetch_weather_forecast(lat, lon, days=3)
-        if not forecast or "daily" not in forecast:
+        # Fetch CONSENSUS weather forecast from MULTIPLE sources
+        consensus = await self.weather_client.get_forecast(lat, lon)
+        
+        if consensus.num_sources == 0:
             return None
         
-        # Get tomorrow's forecast (most weather markets are daily)
-        daily = forecast["daily"]
-        if not daily.get("temperature_2m_max"):
-            return None
+        self.stats["weather_api_calls"] += consensus.num_sources
+        self.stats["sources_used"] = consensus.sources_used
         
-        # Convert Celsius to Fahrenheit (Open-Meteo returns Celsius)
-        forecast_high_c = daily["temperature_2m_max"][0]
-        forecast_low_c = daily["temperature_2m_min"][0]
-        forecast_high_f = forecast_high_c * 9/5 + 32
-        forecast_low_f = forecast_low_c * 9/5 + 32
+        # Use consensus temperatures (already in Fahrenheit)
+        forecast_high_f = consensus.temp_high_f
+        forecast_low_f = consensus.temp_low_f
         
         # Calculate our probability estimate
         forecast_prob = self.calculate_temperature_probability(
             forecast_high_f, forecast_low_f, target_temp, direction
         )
         
+        # Boost confidence based on source agreement
+        agreement_bonus = (consensus.agreement_score / 100) * 20  # Up to +20
+        source_bonus = min(15, consensus.num_sources * 5)  # +5 per source, max +15
+        
         # Adjust for bet side
         if bet_side == "NO":
-            # If betting NO, we want the opposite outcome
             forecast_prob = 100 - forecast_prob
         
         # Calculate edge
@@ -505,10 +550,11 @@ class WeatherValueScanner:
         # Potential return if wins
         potential_return = win_payout
         
-        # Confidence based on edge and forecast uncertainty
-        confidence = min(90, int(50 + edge))
+        # Confidence based on edge, agreement, and number of sources
+        base_confidence = 40 + edge
+        confidence = min(95, int(base_confidence + agreement_bonus + source_bonus))
         
-        # Risk level
+        # Risk level - lower if many sources agree
         if entry_price <= 3:
             risk_level = "extreme"
         elif entry_price <= 7:
@@ -516,8 +562,31 @@ class WeatherValueScanner:
         else:
             risk_level = "medium"
         
+        # Lower risk if high source agreement
+        if consensus.agreement_score >= 90 and risk_level == "high":
+            risk_level = "medium"
+        
         if confidence < self.min_confidence:
             return None
+        
+        # Build rich forecast data for Telegram
+        forecast_data = {
+            "high_f": round(forecast_high_f, 1),
+            "low_f": round(forecast_low_f, 1),
+            "target_f": target_temp,
+            "direction": direction,
+            "num_sources": consensus.num_sources,
+            "sources_used": consensus.sources_used,
+            "agreement_score": consensus.agreement_score,
+            "temp_spread": consensus.temp_spread,
+        }
+        
+        # Add individual source data for transparency
+        for f in consensus.individual_forecasts:
+            forecast_data[f"source_{f.source.lower().replace('.', '_')}"] = {
+                "high": f.temp_high_f,
+                "low": f.temp_low_f,
+            }
         
         return WeatherBet(
             market_id=market.get("id", ""),
@@ -530,13 +599,8 @@ class WeatherValueScanner:
             market_odds=market_prob,
             entry_price=entry_price,
             forecast_probability=forecast_prob,
-            forecast_source="Open-Meteo",
-            forecast_data={
-                "high_f": round(forecast_high_f, 1),
-                "low_f": round(forecast_low_f, 1),
-                "target_f": target_temp,
-                "direction": direction,
-            },
+            forecast_source=f"{consensus.num_sources} sources",
+            forecast_data=forecast_data,
             edge=edge,
             expected_value=ev,
             potential_return=potential_return,
