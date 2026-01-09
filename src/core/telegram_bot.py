@@ -98,6 +98,69 @@ class TelegramBot:
         )
         self.app.add_handler(conv_handler)
         
+        # NEW: Test and monitoring commands
+        self.app.add_handler(CommandHandler("test_alert", self._cmd_test_alert))
+        self.app.add_handler(CommandHandler("scanner_status", self._cmd_scanner_status))
+    
+    async def _cmd_test_alert(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Send a test alert to verify broadcasts are working."""
+        user_id = update.effective_user.id
+        
+        test_message = """
+🧪 *TEST ALERT*
+
+✅ Se estás a ver esta mensagem, os broadcasts estão a funcionar!
+
+📡 *Scanners Ativos:*
+• NewsMonitor - a cada 5 min
+• CorrelationDetector - a cada 10 min
+• SafeBetsScanner - a cada 30 min
+• WeatherScanner - a cada 3 horas
+
+⏰ Vais receber alertas REAIS quando:
+1. Uma notícia relevante aparecer
+2. Mercados correlacionados divergirem
+3. Existir uma aposta "segura" (>97% odds)
+4. Weather markets tiverem edge
+
+_Este é apenas um teste de conexão._
+"""
+        
+        try:
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=test_message.strip(),
+                parse_mode="Markdown"
+            )
+            logger.info("test_alert_sent", user_id=user_id)
+        except Exception as e:
+            logger.error("test_alert_error", user_id=user_id, error=str(e))
+            await update.message.reply_text(f"❌ Erro ao enviar teste: {e}")
+    
+    async def _cmd_scanner_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show status of all scanners (requires ExaSignal injection)."""
+        # This will be populated by ExaSignal when available
+        status_msg = """
+📊 *SCANNER STATUS*
+
+Para ver o estado detalhado dos scanners, 
+utilize o comando /health ou verifique 
+os logs no Railway dashboard.
+
+🔄 *Intervalos de Scan:*
+• NewsMonitor: 5 minutos
+• CorrelationDetector: 10 minutos
+• SafeBetsScanner: 30 minutos
+• WeatherScanner: 3 horas
+
+💡 Se não estás a receber alertas, pode ser
+porque os scanners ainda não encontraram
+oportunidades que passem os filtros.
+
+_Use /test_alert para testar a conexão._
+"""
+        await update.message.reply_text(status_msg.strip(), parse_mode="Markdown")
+
     async def _cmd_investigate(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Inicia fluxo de investigação."""
         user = update.effective_user
