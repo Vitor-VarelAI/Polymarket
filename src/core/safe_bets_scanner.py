@@ -448,9 +448,13 @@ class SafeBetsScanner:
                 # Call callback
                 if self.callback:
                     try:
+                        logger.info("safe_bet_callback_executing", market=bet.market_name[:30])
                         await self.callback(bet)
+                        logger.info("safe_bet_callback_completed", market=bet.market_name[:30])
                     except Exception as e:
-                        logger.error("safe_bet_callback_error", error=str(e))
+                        logger.error("safe_bet_callback_error", error=str(e), traceback=True)
+                else:
+                    logger.warning("safe_bet_callback_not_set")
                 
                 logger.info("safe_bet_found",
                            market=market.get("name", "")[:40],

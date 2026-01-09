@@ -262,7 +262,15 @@ class ExaSignal:
     
     async def _broadcast_safe_bet(self, safe_bet):
         """Broadcast safe bet opportunity to Telegram users."""
+        logger.info("_broadcast_safe_bet_called", market=safe_bet.market_name[:30])
+        
         users = await self.telegram_bot.user_db.get_active_users()
+        logger.info("_broadcast_safe_bet_users", user_count=len(users))
+        
+        if not users:
+            logger.warning("_broadcast_safe_bet_no_users")
+            return
+        
         message = safe_bet.to_telegram()
         
         sent_count = 0
@@ -272,9 +280,10 @@ class ExaSignal:
                     chat_id=user.user_id,
                     text=message.strip(),
                     parse_mode="Markdown",
-                    disable_web_page_preview=False  # Show market link preview
+                    disable_web_page_preview=False
                 )
                 sent_count += 1
+                logger.info("safe_bet_sent_to_user", user_id=user.user_id)
             except Exception as e:
                 logger.error("safe_bet_broadcast_error", user_id=user.user_id, error=str(e))
         
@@ -324,15 +333,17 @@ class ExaSignal:
         
         # Connect arbitrage callback to Telegram broadcast
         self.correlation_detector.callback = self._broadcast_arbitrage
-        logger.info("correlation_detector_callback_connected")
+        logger.info("correlation_detector_callback_connected", callback_set=self.correlation_detector.callback is not None)
         
         # Connect safe bets callback to Telegram broadcast
         self.safe_bets_scanner.callback = self._broadcast_safe_bet
-        logger.info("safe_bets_scanner_callback_connected")
+        logger.info("safe_bets_scanner_callback_connected", 
+                   callback_set=self.safe_bets_scanner.callback is not None,
+                   callback_name=str(self._broadcast_safe_bet))
         
         # Connect weather scanner callback to Telegram broadcast
         self.weather_scanner.callback = self._broadcast_weather_bet
-        logger.info("weather_scanner_callback_connected")
+        logger.info("weather_scanner_callback_connected", callback_set=self.weather_scanner.callback is not None)
         
         # Inject scanner references for /debug command
         self.telegram_bot.news_monitor = self.news_monitor
