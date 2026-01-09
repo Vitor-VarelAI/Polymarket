@@ -102,12 +102,15 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("test_alert", self._cmd_test_alert))
         self.app.add_handler(CommandHandler("scanner_status", self._cmd_scanner_status))
         self.app.add_handler(CommandHandler("debug", self._cmd_debug))
+        self.app.add_handler(CommandHandler("test_digest", self._cmd_test_digest))  # NEW
         
         # Scanner references (will be injected by ExaSignal)
         self.news_monitor = None
         self.correlation_detector = None
         self.safe_bets_scanner = None
         self.weather_scanner = None
+        self.value_bets_scanner = None  # NEW
+        self.digest_scheduler = None  # NEW
     
     async def _cmd_test_alert(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Send a test alert to verify broadcasts are working."""
@@ -146,27 +149,38 @@ _Este é apenas um teste de conexão._
     
     async def _cmd_scanner_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show status of all scanners (requires ExaSignal injection)."""
-        # This will be populated by ExaSignal when available
-        status_msg = """
-📊 *SCANNER STATUS*
-
-Para ver o estado detalhado dos scanners, 
-utilize o comando /health ou verifique 
-os logs no Railway dashboard.
-
-🔄 *Intervalos de Scan:*
-• NewsMonitor: 5 minutos
-• CorrelationDetector: 10 minutos
-• SafeBetsScanner: 30 minutos
-• WeatherScanner: 3 horas
-
-💡 Se não estás a receber alertas, pode ser
-porque os scanners ainda não encontraram
-oportunidades que passem os filtros.
-
-_Use /test_alert para testar a conexão._
-"""
-        await update.message.reply_text(status_msg.strip(), parse_mode="Markdown")
+        status_parts = ["📊 *SCANNER STATUS*\n"]
+        
+        # Value Bets Scanner status
+        if self.value_bets_scanner:
+            vb_stats = self.value_bets_scanner.get_status()
+            status_parts.append(f"🎯 *Value Bets Scanner:*")
+            status_parts.append(f"   Candidates in queue: {vb_stats.get('candidates_in_queue', 0)}")
+            status_parts.append(f"   Markets sent: {vb_stats.get('sent_markets', 0)}")
+            status_parts.append(f"   Scans completed: {vb_stats.get('stats', {}).get('scans', 0)}")
+        
+        status_parts.append(f"\n⏰ *Digest Schedule:*")
+        status_parts.append(f"   • Morning: 11:00 UTC")
+        status_parts.append(f"   • Evening: 20:00 UTC")
+        
+        status_parts.append(f"\n💡 Use /test\\_digest para testar agora.")
+        
+        await update.message.reply_text("\n".join(status_parts), parse_mode="Markdown")
+    
+    async def _cmd_test_digest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Trigger a test digest immediately."""
+        await update.message.reply_text("🔍 A preparar digest de teste...\\nIsto pode demorar 30-60 segundos.", parse_mode="Markdown")
+        
+        if not self.digest_scheduler:
+            await update.message.reply_text("❌ Digest scheduler não está inicializado.")
+            return
+        
+        try:
+            result = await self.digest_scheduler.send_test_digest()
+            await update.message.reply_text(f"✅ {result}")
+        except Exception as e:
+            logger.error("test_digest_error", error=str(e))
+            await update.message.reply_text(f"❌ Erro: {e}")
 
     async def _cmd_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Run diagnostic scan and show what each scanner finds."""

@@ -41,6 +41,8 @@ from src.core.research_agent import ResearchAgent
 from src.core.correlation_detector import CorrelationDetector  # Arbitrage detection
 from src.core.safe_bets_scanner import SafeBetsScanner  # Safe bets (99% odds)
 from src.core.weather_scanner import WeatherValueScanner  # NEW: Weather underdog bets
+from src.core.value_bets_scanner import ValueBetsScanner  # NEW: Value bets (underdogs)
+from src.core.digest_scheduler import DigestScheduler  # NEW: Scheduled digests
 from src.storage.rate_limiter import RateLimiter
 from src.storage.user_db import UserDB
 from src.utils.config import Config
@@ -166,6 +168,27 @@ class ExaSignal:
             min_edge=3.0,  # LOWERED from 5.0 - more alerts
             min_confidence=50,  # LOWERED from 60
             scan_interval=7200,  # 2 hours (was 3 hours)
+        )
+        
+        # =======================================================
+        # NEW: Value Bets Digest System (replaces instant alerts)
+        # =======================================================
+        # Collects underdog opportunities (5-30% odds)
+        self.value_bets_scanner = ValueBetsScanner(
+            gamma=self.gamma,
+            min_odds=5.0,  # Minimum 5% odds
+            max_odds=30.0,  # Maximum 30% odds
+            min_liquidity=5000,  # $5k min liquidity
+            max_days_to_resolution=60,  # Max 60 days out
+            scan_interval=7200,  # Scan every 2 hours
+        )
+        
+        # Digest scheduler - sends curated picks at 11:00 and 20:00 UTC
+        self.digest_scheduler = DigestScheduler(
+            scanner=self.value_bets_scanner,
+            groq=self.groq,
+            send_callback=None,  # Set in start()
+            picks_per_digest=4,  # 4-5 picks per digest
         )
         
         # Estado
@@ -316,6 +339,29 @@ class ExaSignal:
                    edge=weather_bet.edge,
                    sent_to=sent_count)
     
+    async def _broadcast_digest(self, digest_message: str):
+        """Broadcast digest message to all Telegram users."""
+        users = await self.telegram_bot.user_db.get_active_users()
+        
+        if not users:
+            logger.warning("digest_broadcast_no_users")
+            return
+        
+        sent_count = 0
+        for user in users:
+            try:
+                await self.telegram_bot.bot.send_message(
+                    chat_id=user.user_id,
+                    text=digest_message.strip(),
+                    parse_mode="Markdown",
+                    disable_web_page_preview=False
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error("digest_broadcast_error", user_id=user.user_id, error=str(e))
+        
+        logger.info("digest_broadcast_complete", sent_to=sent_count)
+    
     async def start(self):
         """Inicia o sistema."""
         logger.info("exasignal_starting", markets=len(self.market_manager.markets))
@@ -350,6 +396,8 @@ class ExaSignal:
         self.telegram_bot.correlation_detector = self.correlation_detector
         self.telegram_bot.safe_bets_scanner = self.safe_bets_scanner
         self.telegram_bot.weather_scanner = self.weather_scanner
+        self.telegram_bot.value_bets_scanner = self.value_bets_scanner  # NEW
+        self.telegram_bot.digest_scheduler = self.digest_scheduler  # NEW
         logger.info("scanners_injected_to_telegram_bot")
         
         # Iniciar polling do bot em background
@@ -362,25 +410,36 @@ class ExaSignal:
                    min_score=self.news_monitor.min_score,
                    finnhub_available=self.news_monitor.finnhub.is_available if hasattr(self.news_monitor.finnhub, 'is_available') else 'unknown')
         
-        # Start correlation detector in background (arbitrage detection)
-        asyncio.create_task(self.correlation_detector.start_monitoring())
-        logger.info("correlation_detector_started",
-                   min_edge=self.correlation_detector.min_edge,
-                   scan_interval=self.correlation_detector.scan_interval)
+        # =======================================================
+        # DISABLED: These scanners sent too many instant alerts
+        # Replaced by Value Bets Digest System below
+        # =======================================================
+        # asyncio.create_task(self.correlation_detector.start_monitoring())
+        # asyncio.create_task(self.safe_bets_scanner.start_monitoring())
+        # asyncio.create_task(self.weather_scanner.start_monitoring())
+        logger.info("old_scanners_disabled", 
+                   reason="Replaced by Value Bets Digest System")
         
-        # Start safe bets scanner in background (vacuum cleaner strategy)
-        asyncio.create_task(self.safe_bets_scanner.start_monitoring())
-        logger.info("safe_bets_scanner_started",
-                   min_odds=self.safe_bets_scanner.min_odds_threshold,
-                   min_liquidity=self.safe_bets_scanner.min_liquidity,
-                   scan_interval=self.safe_bets_scanner.scan_interval)
+        # =======================================================
+        # NEW: Value Bets Digest System
+        # Sends curated picks at 11:00 and 20:00 UTC
+        # =======================================================
         
-        # Start weather value scanner in background (meteorological bot strategy)
-        asyncio.create_task(self.weather_scanner.start_monitoring())
-        logger.info("weather_scanner_started",
-                   max_entry_price=self.weather_scanner.max_entry_price,
-                   min_edge=self.weather_scanner.min_edge,
-                   scan_interval=self.weather_scanner.scan_interval)
+        # Connect digest broadcast callback
+        self.digest_scheduler.send_callback = self._broadcast_digest
+        
+        # Start value bets scanner (collects candidates)
+        asyncio.create_task(self.value_bets_scanner.start_scanning())
+        logger.info("value_bets_scanner_started",
+                   min_odds=self.value_bets_scanner.min_odds,
+                   max_odds=self.value_bets_scanner.max_odds,
+                   scan_interval=self.value_bets_scanner.scan_interval)
+        
+        # Start digest scheduler (sends at 11:00 and 20:00)
+        asyncio.create_task(self.digest_scheduler.start())
+        logger.info("digest_scheduler_started",
+                   times=["11:00", "20:00"],
+                   picks_per_digest=self.digest_scheduler.picks_per_digest)
         
         self._running = True
         logger.info("exasignal_started")
