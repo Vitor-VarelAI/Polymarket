@@ -12,12 +12,13 @@ Strategy:
 - Calculate consensus (average) temperature
 - Use confidence from source agreement
 - Fallback to Open-Meteo if no API keys configured
+- CACHE forecasts for 2 hours to minimize API calls (free tier friendly)
 """
 import asyncio
 import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from src.utils.logger import logger
 
@@ -84,6 +85,10 @@ class ConsensusForecast:
     # Individual forecasts
     individual_forecasts: List[WeatherForecast] = field(default_factory=list)
     
+    # Cache metadata
+    cached: bool = False
+    cache_age_minutes: int = 0
+    
     def to_dict(self) -> dict:
         return {
             "location": self.location,
@@ -97,7 +102,25 @@ class ConsensusForecast:
             "sources_used": self.sources_used,
             "temp_spread": self.temp_spread,
             "agreement_score": self.agreement_score,
+            "cached": self.cached,
         }
+
+
+@dataclass
+class CachedForecast:
+    """A cached forecast with timestamp."""
+    forecast: "ConsensusForecast"
+    timestamp: datetime
+    
+    def is_expired(self, ttl_hours: int = 2) -> bool:
+        """Check if cache entry has expired."""
+        age = datetime.now(timezone.utc) - self.timestamp
+        return age > timedelta(hours=ttl_hours)
+    
+    def age_minutes(self) -> int:
+        """Get age in minutes."""
+        age = datetime.now(timezone.utc) - self.timestamp
+        return int(age.total_seconds() / 60)
 
 
 class WeatherClient:
@@ -106,7 +129,13 @@ class WeatherClient:
     
     Combines Tomorrow.io, OpenWeatherMap, and WeatherAPI.com
     with Open-Meteo as a free fallback.
+    
+    CACHING: Forecasts are cached for 2 hours to minimize API calls.
+    This is important for staying within free tier limits.
     """
+    
+    # Cache TTL in hours (weather doesn't change that fast)
+    CACHE_TTL_HOURS = 2
     
     def __init__(self):
         """Initialize with API keys from environment."""
@@ -123,12 +152,23 @@ class WeatherClient:
         if self.weatherapi_key and self.weatherapi_key != "your_weatherapi_key_here":
             self.sources_available.append("weatherapi")
         
-        # Always have Open-Meteo as fallback
+        # Always have Open-Meteo as fallback (free, unlimited)
         self.sources_available.append("open-meteo")
+        
+        # Forecast cache: key = "lat,lon" -> CachedForecast
+        self._cache: Dict[str, CachedForecast] = {}
+        
+        # API call statistics
+        self.stats = {
+            "api_calls": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+        }
         
         logger.info("weather_client_initialized", 
                    sources=self.sources_available,
-                   has_premium=len(self.sources_available) > 1)
+                   has_premium=len(self.sources_available) > 1,
+                   cache_ttl_hours=self.CACHE_TTL_HOURS)
     
     async def _fetch_tomorrow(self, lat: float, lon: float) -> Optional[WeatherForecast]:
         """Fetch from Tomorrow.io API."""
@@ -336,8 +376,30 @@ class WeatherClient:
         """
         Get consensus forecast from all available sources.
         
+        CACHING: Returns cached forecast if available and not expired.
+        This minimizes API calls to stay within free tier limits.
+        
         Returns weighted average with agreement scoring.
         """
+        # Round coordinates to reduce cache fragmentation
+        cache_key = f"{round(lat, 2)},{round(lon, 2)}"
+        
+        # Check cache first
+        if cache_key in self._cache:
+            cached = self._cache[cache_key]
+            if not cached.is_expired(self.CACHE_TTL_HOURS):
+                self.stats["cache_hits"] += 1
+                # Return cached forecast with updated metadata
+                cached.forecast.cached = True
+                cached.forecast.cache_age_minutes = cached.age_minutes()
+                logger.debug("weather_cache_hit", 
+                           location=cache_key, 
+                           age_minutes=cached.age_minutes())
+                return cached.forecast
+        
+        # Cache miss - fetch from APIs
+        self.stats["cache_misses"] += 1
+        
         # Fetch from all sources in parallel
         tasks = []
         
@@ -352,6 +414,7 @@ class WeatherClient:
         
         # Execute all in parallel
         results = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
+        self.stats["api_calls"] += len(tasks)
         
         # Collect successful forecasts
         forecasts: List[WeatherForecast] = []
@@ -406,15 +469,52 @@ class WeatherClient:
             temp_spread=round(temp_spread, 1),
             agreement_score=round(agreement_score, 1),
             individual_forecasts=forecasts,
+            cached=False,
+            cache_age_minutes=0,
         )
         
+        # Store in cache
+        self._cache[cache_key] = CachedForecast(
+            forecast=consensus,
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        # Clean old cache entries (keep last 50)
+        if len(self._cache) > 50:
+            # Remove oldest entries
+            sorted_keys = sorted(
+                self._cache.keys(),
+                key=lambda k: self._cache[k].timestamp
+            )
+            for old_key in sorted_keys[:20]:
+                del self._cache[old_key]
+        
         logger.info("consensus_forecast_generated",
-                   location=f"{lat},{lon}",
+                   location=cache_key,
                    sources=len(forecasts),
-                   temp_high=temp_high,
-                   agreement=agreement_score)
+                   temp_high=round(temp_high, 1),
+                   agreement=round(agreement_score, 1),
+                   api_calls=self.stats["api_calls"],
+                   cache_hits=self.stats["cache_hits"])
         
         return consensus
+    
+    def clear_cache(self):
+        """Clear the forecast cache."""
+        self._cache.clear()
+        logger.info("weather_cache_cleared")
+    
+    def get_stats(self) -> dict:
+        """Get API usage statistics."""
+        return {
+            **self.stats,
+            "cache_size": len(self._cache),
+            "cache_ttl_hours": self.CACHE_TTL_HOURS,
+            "hit_rate": (
+                self.stats["cache_hits"] / (self.stats["cache_hits"] + self.stats["cache_misses"])
+                if (self.stats["cache_hits"] + self.stats["cache_misses"]) > 0 else 0
+            ) * 100,
+        }
     
     def format_forecast_telegram(self, forecast: ConsensusForecast) -> str:
         """Format consensus forecast for Telegram."""

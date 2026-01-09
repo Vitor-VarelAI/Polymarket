@@ -155,14 +155,15 @@ class ExaSignal:
             excluded_categories=["Sports"],  # Sports too volatile during games
         )
         
-        # NEW: Weather Value Scanner (Meteorological Bot strategy)
+        # Weather Value Scanner (Meteorological Bot strategy)
         # Finds undervalued weather markets for $1 underdog bets
+        # NOTE: Uses cached forecasts (2h TTL) to minimize API calls
         self.weather_scanner = WeatherValueScanner(
             callback=None,  # Set in start() after bot is ready
             max_entry_price=10.0,  # Only bet on ≤10¢ outcomes (underdogs)
             min_edge=5.0,  # Minimum 5% edge over market
             min_confidence=60,
-            scan_interval=3600,  # 1 hour (weather updates hourly)
+            scan_interval=10800,  # 3 hours (free tier friendly - ~8 API batches/day)
         )
         
         # Estado
