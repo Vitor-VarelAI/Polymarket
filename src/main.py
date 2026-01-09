@@ -38,6 +38,7 @@ from src.api.exa_client import ExaClient
 from src.api.groq_client import GroqClient
 from src.api.finnhub_client import FinnhubClient  # NEW: Finnhub for fast news
 from src.core.research_agent import ResearchAgent
+from src.core.correlation_detector import CorrelationDetector  # NEW: Arbitrage detection
 from src.storage.rate_limiter import RateLimiter
 from src.storage.user_db import UserDB
 from src.utils.config import Config
@@ -129,6 +130,17 @@ class ExaSignal:
             use_enriched=True
         )
         
+        # NEW: Correlation Detector for arbitrage opportunities (SwissTony-inspired)
+        # Detects mispricings between correlated markets
+        self.correlation_detector = CorrelationDetector(
+            gamma=self.gamma,
+            groq=self.groq,
+            callback=None,  # Set in start() after bot is ready
+            min_edge=2.0,  # Minimum 2% edge to alert
+            min_confidence=70,
+            scan_interval=600,  # 10 minutes (more intensive AI usage)
+        )
+        
         # Estado
         self._running = False
     
@@ -199,6 +211,28 @@ class ExaSignal:
             logger.debug("signal_search", query=query, found=len(results), total=len(all_items))
             return results[:limit]
     
+    async def _broadcast_arbitrage(self, opportunity):
+        """Broadcast arbitrage opportunity to Telegram users."""
+        users = await self.telegram_bot.user_db.get_active_users()
+        message = opportunity.to_telegram()
+        
+        sent_count = 0
+        for user in users:
+            try:
+                await self.telegram_bot.bot.send_message(
+                    chat_id=user.user_id,
+                    text=message.strip(),
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True
+                )
+                sent_count += 1
+            except Exception as e:
+                logger.error("arb_broadcast_error", user_id=user.user_id, error=str(e))
+        
+        logger.info("arbitrage_broadcast_complete", 
+                   edge=opportunity.edge,
+                   sent_to=sent_count)
+    
     async def start(self):
         """Inicia o sistema."""
         logger.info("exasignal_starting", markets=len(self.market_manager.markets))
@@ -214,6 +248,10 @@ class ExaSignal:
         self.news_monitor.signal_callback = self.telegram_bot.broadcast_signal
         logger.info("news_monitor_callback_connected")
         
+        # Connect arbitrage callback to Telegram broadcast
+        self.correlation_detector.callback = self._broadcast_arbitrage
+        logger.info("correlation_detector_callback_connected")
+        
         # Iniciar polling do bot em background
         await self.telegram_bot.run_polling()
         
@@ -224,6 +262,12 @@ class ExaSignal:
                    min_score=self.news_monitor.min_score,
                    finnhub_available=self.news_monitor.finnhub.is_available if hasattr(self.news_monitor.finnhub, 'is_available') else 'unknown')
         
+        # Start correlation detector in background (arbitrage detection)
+        asyncio.create_task(self.correlation_detector.start_monitoring())
+        logger.info("correlation_detector_started",
+                   min_edge=self.correlation_detector.min_edge,
+                   scan_interval=self.correlation_detector.scan_interval)
+        
         self._running = True
         logger.info("exasignal_started")
     
@@ -232,8 +276,9 @@ class ExaSignal:
         logger.info("exasignal_stopping")
         self._running = False
         
-        # Stop news monitor
+        # Stop monitors
         self.news_monitor.stop_monitoring()
+        self.correlation_detector.stop_monitoring()
         
         # Fechar conexões
         await self.telegram_bot.stop()
