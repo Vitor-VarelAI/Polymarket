@@ -105,7 +105,7 @@ class SafeBet:
 
 ⚠️ Risk Level: {self.risk_level.replace('_', ' ').title()}
 
-🔗 polymarket.com/event/{self.slug}
+🔗 [Open Market](https://polymarket.com/event/{self.slug})
 
 ⏰ {self.timestamp[:19]}
 """
@@ -438,8 +438,8 @@ class SafeBetsScanner:
             
             bet = self.analyze_market(market)
             
-            # Include 'moderate' to get more alerts (was only ultra_safe, safe)
-            if bet and bet.risk_level in ["ultra_safe", "safe", "moderate"]:
+            # Only send alerts for ultra_safe and safe (not moderate)
+            if bet and bet.risk_level in ["ultra_safe", "safe"]:
                 safe_bets.append(bet)
                 self.seen_markets.add(market_id)
                 self.stats["safe_bets_found"] += 1

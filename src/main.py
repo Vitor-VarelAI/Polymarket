@@ -146,13 +146,13 @@ class ExaSignal:
         
         # Safe Bets Scanner (SwissTony vacuum cleaner strategy)
         # Finds markets with high odds for small consistent profits
-        # NOTE: Thresholds LOWERED to find more opportunities
+        # Settings optimized for quality over quantity
         self.safe_bets_scanner = SafeBetsScanner(
             gamma=self.gamma,
             callback=None,  # Set in start() after bot is ready
-            min_odds_threshold=93.0,  # LOWERED from 97.0 - more alerts
-            min_liquidity=500,  # LOWERED from 1000 - more markets
-            min_expected_value=0.3,  # LOWERED from 0.5
+            min_odds_threshold=97.0,  # 97%+ odds for safe bets
+            min_liquidity=5000,  # $5k+ liquidity to ensure exit
+            min_expected_value=0.5,  # Must have positive EV
             scan_interval=1800,  # 30 minutes
             excluded_categories=["Sports"],
         )
