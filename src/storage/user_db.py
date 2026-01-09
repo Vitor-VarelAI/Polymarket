@@ -42,6 +42,18 @@ class UserDB:
                 await db.execute("ALTER TABLE users ADD COLUMN last_investigation_date TEXT")
             except Exception:
                 pass  # Colunas já existem
+            
+            # AUTO-CREATE ADMIN USER if TELEGRAM_ADMIN_ID is set
+            # This ensures alerts work even after Railway resets the ephemeral DB
+            if Config.TELEGRAM_ADMIN_ID:
+                cursor = await db.execute("SELECT 1 FROM users WHERE user_id = ?", (Config.TELEGRAM_ADMIN_ID,))
+                if not await cursor.fetchone():
+                    await db.execute(
+                        """INSERT INTO users (user_id, username, first_name, is_active, score_threshold) 
+                           VALUES (?, 'admin', 'Admin', 1, 30)""",
+                        (Config.TELEGRAM_ADMIN_ID,)
+                    )
+                    logger.info("admin_user_auto_created", user_id=Config.TELEGRAM_ADMIN_ID)
                 
             await db.commit()
         

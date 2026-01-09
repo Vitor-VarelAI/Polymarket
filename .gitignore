@@ -23,7 +23,7 @@ ENV/
 
 # Logs
 *.log
-logs/
+# logs/ - removed for debugging
 
 # Database
 *.db

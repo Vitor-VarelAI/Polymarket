@@ -14,6 +14,7 @@ class Config:
     
     # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_ADMIN_ID: Optional[int] = int(os.getenv("TELEGRAM_ADMIN_ID", "0")) if os.getenv("TELEGRAM_ADMIN_ID") else None
     
     # APIs de Pesquisa
     NEWSAPI_KEY: str = os.getenv("NEWSAPI_KEY", "")
