@@ -388,15 +388,10 @@ class SafeBetsScanner:
         # Calculate expected value
         ev = self._calculate_expected_value(entry_price, win_probability)
         
-        # For truly safe bets, EV should be close to the profit margin
-        # A "fair" bet has EV = 0
-        # We only want bets where we believe true probability > implied probability
-        
-        # Skip if EV is too low (probably fair odds)
+        # STRICT EV filter - only alert if there's real edge
+        # This filters out "fair odds" bets with 0% EV
         if ev < self.min_expected_value:
-            # For ultra-high odds, still consider them
-            if win_probability < 99:
-                return None
+            return None
         
         risk_level = self._calculate_risk_level(win_probability, category, liquidity)
         
