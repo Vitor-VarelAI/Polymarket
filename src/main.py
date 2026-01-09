@@ -116,8 +116,9 @@ class ExaSignal:
             event_scheduler=self.event_scheduler
         )
         
-        # NEW: News Monitor for automatic signal detection
+        # News Monitor for automatic signal detection
         # Signal callback will be set after telegram_bot is ready
+        # NOTE: Thresholds LOWERED to ensure alerts are generated
         self.news_monitor = NewsMonitor(
             newsapi=self.newsapi,
             finnhub_client=self.finnhub,
@@ -126,44 +127,45 @@ class ExaSignal:
             search_func=self._search_markets_for_signal,
             signal_callback=None,  # Set in start() after bot is ready
             poll_interval_seconds=300,  # 5 minutes
-            min_score=70,
-            min_confidence=60,
-            max_news_age_minutes=30,
+            min_score=50,  # LOWERED from 70 - more alerts
+            min_confidence=40,  # LOWERED from 60 - more alerts
+            max_news_age_minutes=60,  # INCREASED from 30 - capture more news
             use_enriched=True
         )
         
-        # NEW: Correlation Detector for arbitrage opportunities (SwissTony-inspired)
+        # Correlation Detector for arbitrage opportunities (SwissTony-inspired)
         # Detects mispricings between correlated markets
         self.correlation_detector = CorrelationDetector(
             gamma=self.gamma,
             groq=self.groq,
             callback=None,  # Set in start() after bot is ready
-            min_edge=2.0,  # Minimum 2% edge to alert
-            min_confidence=70,
-            scan_interval=600,  # 10 minutes (more intensive AI usage)
+            min_edge=1.5,  # LOWERED from 2.0 - more alerts
+            min_confidence=60,  # LOWERED from 70
+            scan_interval=600,  # 10 minutes
         )
         
-        # NEW: Safe Bets Scanner (SwissTony vacuum cleaner strategy)
-        # Finds markets with 97%+ odds for small consistent profits
+        # Safe Bets Scanner (SwissTony vacuum cleaner strategy)
+        # Finds markets with high odds for small consistent profits
+        # NOTE: Thresholds LOWERED to find more opportunities
         self.safe_bets_scanner = SafeBetsScanner(
             gamma=self.gamma,
             callback=None,  # Set in start() after bot is ready
-            min_odds_threshold=97.0,  # Only 97%+ certainty
-            min_liquidity=1000,  # Minimum $1k liquidity
-            min_expected_value=0.5,  # Minimum 0.5% EV
-            scan_interval=1800,  # 30 minutes (less frequent)
-            excluded_categories=["Sports"],  # Sports too volatile during games
+            min_odds_threshold=93.0,  # LOWERED from 97.0 - more alerts
+            min_liquidity=500,  # LOWERED from 1000 - more markets
+            min_expected_value=0.3,  # LOWERED from 0.5
+            scan_interval=1800,  # 30 minutes
+            excluded_categories=["Sports"],
         )
         
         # Weather Value Scanner (Meteorological Bot strategy)
         # Finds undervalued weather markets for $1 underdog bets
-        # NOTE: Uses cached forecasts (2h TTL) to minimize API calls
+        # NOTE: Thresholds LOWERED to find more opportunities
         self.weather_scanner = WeatherValueScanner(
             callback=None,  # Set in start() after bot is ready
-            max_entry_price=10.0,  # Only bet on ≤10¢ outcomes (underdogs)
-            min_edge=5.0,  # Minimum 5% edge over market
-            min_confidence=60,
-            scan_interval=10800,  # 3 hours (free tier friendly - ~8 API batches/day)
+            max_entry_price=15.0,  # INCREASED from 10.0 - more markets
+            min_edge=3.0,  # LOWERED from 5.0 - more alerts
+            min_confidence=50,  # LOWERED from 60
+            scan_interval=7200,  # 2 hours (was 3 hours)
         )
         
         # Estado
@@ -371,6 +373,53 @@ class ExaSignal:
         
         self._running = True
         logger.info("exasignal_started")
+        
+        # Send startup notification to all active users
+        await self._send_startup_notification()
+    
+    async def _send_startup_notification(self):
+        """Send notification to all users that the system is now running."""
+        try:
+            users = await self.telegram_bot.user_db.get_active_users()
+            
+            if not users:
+                logger.warning("no_active_users_for_startup_notification")
+                return
+            
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            
+            startup_msg = f"""
+🚀 *ExaSignal Online!*
+
+O sistema arrancou às {now}
+
+📡 *Scanners Ativos:*
+• NewsMonitor (cada 5 min)
+• CorrelationDetector (cada 10 min)  
+• SafeBetsScanner (cada 30 min)
+• WeatherScanner (cada 2 horas)
+
+✅ Vais receber alertas automaticamente.
+Use /debug para ver o estado dos scanners.
+"""
+            
+            sent_count = 0
+            for user in users:
+                try:
+                    await self.telegram_bot.bot.send_message(
+                        chat_id=user.user_id,
+                        text=startup_msg.strip(),
+                        parse_mode="Markdown"
+                    )
+                    sent_count += 1
+                except Exception as e:
+                    logger.error("startup_notification_error", user_id=user.user_id, error=str(e))
+            
+            logger.info("startup_notification_sent", users=sent_count)
+            
+        except Exception as e:
+            logger.error("startup_notification_failed", error=str(e))
     
     async def stop(self):
         """Para o sistema graciosamente."""

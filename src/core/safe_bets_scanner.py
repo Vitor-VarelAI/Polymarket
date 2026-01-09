@@ -438,7 +438,8 @@ class SafeBetsScanner:
             
             bet = self.analyze_market(market)
             
-            if bet and bet.risk_level in ["ultra_safe", "safe"]:
+            # Include 'moderate' to get more alerts (was only ultra_safe, safe)
+            if bet and bet.risk_level in ["ultra_safe", "safe", "moderate"]:
                 safe_bets.append(bet)
                 self.seen_markets.add(market_id)
                 self.stats["safe_bets_found"] += 1
