@@ -196,7 +196,28 @@ _Este é apenas um teste de conexão._
             return
         
         try:
-            # 1. Check NewsMonitor status
+            # 1. NEW: ValueBetsScanner status (primary scanner now)
+            vb_status = "❌ Não disponível"
+            if self.value_bets_scanner:
+                stats = self.value_bets_scanner.stats if hasattr(self.value_bets_scanner, 'stats') else {}
+                status = self.value_bets_scanner.get_status()
+                vb_status = f"""🎯 *ValueBetsScanner* (ACTIVE)
+   Running: {self.value_bets_scanner._running}
+   Scans: {stats.get('scans', 0)}
+   Candidates in queue: {status.get('candidates_in_queue', 0)}
+   Markets sent: {status.get('sent_markets', 0)}"""
+            results.append(vb_status)
+            
+            # 2. DigestScheduler status
+            digest_status = "❌ Não disponível"
+            if self.digest_scheduler:
+                digest_status = f"""📅 *DigestScheduler* (ACTIVE)
+   Schedule: 11:00 and 20:00 UTC
+   Picks per digest: {self.digest_scheduler.picks_per_digest}
+   Last digest: {self.digest_scheduler.last_digest_time or 'Never'}"""
+            results.append(digest_status)
+            
+            # 3. NewsMonitor status
             news_status = "❌ Não disponível"
             if self.news_monitor:
                 news_status = f"""✅ *NewsMonitor*
@@ -205,39 +226,15 @@ _Este é apenas um teste de conexão._
    Interval: {self.news_monitor.poll_interval}s"""
             results.append(news_status)
             
-            # 2. Check CorrelationDetector status
-            corr_status = "❌ Não disponível"
+            # DISABLED SCANNERS (note: these are disabled now)
+            results.append("\n⏸️ *DISABLED SCANNERS:*")
+            
             if self.correlation_detector:
-                stats = self.correlation_detector.stats if hasattr(self.correlation_detector, 'stats') else {}
-                corr_status = f"""✅ *CorrelationDetector*
-   Running: {self.correlation_detector._running}
-   Scans: {stats.get('scans', 0)}
-   Known pairs: {len(self.correlation_detector.known_pairs) if hasattr(self.correlation_detector, 'known_pairs') else 0}
-   Opportunities found: {stats.get('opportunities_found', 0)}"""
-            results.append(corr_status)
-            
-            # 3. Check SafeBetsScanner status
-            safe_status = "❌ Não disponível"
+                results.append(f"• CorrelationDetector: {'Running' if self.correlation_detector._running else 'Disabled'}")
             if self.safe_bets_scanner:
-                stats = self.safe_bets_scanner.stats if hasattr(self.safe_bets_scanner, 'stats') else {}
-                safe_status = f"""✅ *SafeBetsScanner*
-   Running: {self.safe_bets_scanner._running}
-   Scans: {stats.get('scans', 0)}
-   Markets checked: {stats.get('markets_checked', 0)}
-   Safe bets found: {stats.get('safe_bets_found', 0)}"""
-            results.append(safe_status)
-            
-            # 4. Check WeatherScanner status
-            weather_status = "❌ Não disponível"
+                results.append(f"• SafeBetsScanner: {'Running' if self.safe_bets_scanner._running else 'Disabled'}")
             if self.weather_scanner:
-                stats = self.weather_scanner.stats if hasattr(self.weather_scanner, 'stats') else {}
-                weather_status = f"""✅ *WeatherScanner*
-   Running: {self.weather_scanner._running}
-   Scans: {stats.get('scans', 0)}
-   Markets checked: {stats.get('markets_checked', 0)}
-   Value bets found: {stats.get('value_bets_found', 0)}
-   API calls: {stats.get('weather_api_calls', 0)}"""
-            results.append(weather_status)
+                results.append(f"• WeatherScanner: {'Running' if self.weather_scanner._running else 'Disabled'}")
             
             # Build final message
             debug_msg = f"""
@@ -247,10 +244,9 @@ _Este é apenas um teste de conexão._
 {chr(10).join(results)}
 
 ━━━━━━━━━━━━━━━━━━━━━
-💡 *Notas:*
-• Se Running = False, o scanner parou
-• Se Scans = 0, o scanner nunca correu
-• Se Markets checked = 0, não encontrou mercados
+💡 *Como testar:*
+• /test\\_digest - Enviar digest agora
+• /scanner\\_status - Ver resumo
 
 ⏰ Diagnóstico às {update.message.date.strftime('%H:%M:%S')} UTC
 """
