@@ -225,10 +225,35 @@ OUTPUT JSON ONLY (just IDs, no reasoning):
         if not candidates:
             return []
         
+        # Step 0: PRE-FILTER bad candidates (before any processing)
+        filtered = []
+        for c in candidates:
+            # Skip arbitrage (not actionable)
+            if c.category == "Arbitrage" or c.bet_side == "ARBITRAGE":
+                continue
+            # Skip sports
+            if c.category == "Sports":
+                continue
+            # Skip already resolved (0 days)
+            if c.days_to_resolution <= 0:
+                continue
+            # Skip placeholder entries
+            if c.entry_price == 50 and c.potential_multiplier == 1:
+                continue
+            filtered.append(c)
+        
+        candidates = filtered
+        if not candidates:
+            logger.info("all_candidates_filtered_out")
+            return []
+        
         # Step 1: Calculate all metrics in Python (HARD LOGIC)
         for c in candidates:
             c.calculated_ev = self._calculate_ev(c)
             c.confidence = self._calculate_confidence(c)
+        
+        # Step 1.5: Filter by EV (only positive or near-zero)
+        candidates = [c for c in candidates if c.calculated_ev >= -0.1]
         
         # Step 2: LLM selects IDs (or fallback to formula)
         selected_ids = await self._llm_select_ids(candidates)

@@ -502,10 +502,10 @@ class ExaSignal:
         asyncio.create_task(self.safe_bets_scanner.start_monitoring())
         logger.info("safe_bets_scanner_started_for_digest")
         
-        # Re-enable CorrelationDetector but connect to digest queue
-        self.correlation_detector.callback = self._add_arbitrage_to_digest_queue
-        asyncio.create_task(self.correlation_detector.start_monitoring())
-        logger.info("correlation_detector_started_for_digest")
+        # DISABLED: Arbitrage requires multi-leg trades, not actionable in digest
+        # self.correlation_detector.callback = self._add_arbitrage_to_digest_queue
+        # asyncio.create_task(self.correlation_detector.start_monitoring())
+        logger.info("correlation_detector_disabled_for_digest", reason="Multi-leg trades not actionable")
         
         # Re-enable WeatherScanner but connect to digest queue
         self.weather_scanner.callback = self._add_weather_to_digest_queue
