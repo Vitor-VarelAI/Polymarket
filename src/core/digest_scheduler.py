@@ -1,16 +1,15 @@
 """
-ExaSignal - Digest Scheduler
-Anti-hallucination digest system with strict data grounding.
+ExaSignal - Digest Scheduler v2.0
+Hybrid approach: LLM for Selection, Templates for Reasoning.
 
-Principles:
-1. Data-First: All metrics are fetched, never LLM-guessed
-2. LLM as Selector: Only picks from provided data
-3. Validation: Post-LLM checks against input data
-4. Transparency: Timestamps and sources included
+Architecture:
+- Hard Logic: EV, Confidence, Reasoning (Python - no hallucinations)
+- LLM: Selection only (diversity, pattern detection)
+- Validation: Strict JSON parsing, no invented data
 """
 import asyncio
-from dataclasses import dataclass
-from typing import List, Optional, Callable
+from dataclasses import dataclass, field
+from typing import List, Optional, Callable, Dict, Any
 from datetime import datetime, timezone, time
 import json
 import re
@@ -22,25 +21,26 @@ from src.utils.logger import logger
 
 @dataclass
 class CuratedPick:
-    """A curated pick with LLM reasoning."""
+    """A curated pick with template-based reasoning."""
     bet: ValueBet
-    reasoning: str
+    reasoning: str  # Template-generated, NOT LLM
     rank: int
-    ev_score: float  # Calculated EV, not LLM-generated
-    confidence: str  # LOW/MEDIUM/HIGH based on formula
+    ev_score: float
+    confidence: str
+    risk_context: str  # Template-generated insight
 
 
 class DigestScheduler:
     """
-    Anti-hallucination digest scheduler.
-    LLM only selects from explicit data - no creative liberty.
+    Hybrid Digest Scheduler:
+    - LLM: ONLY for selection (which IDs to pick)
+    - Python: ALL reasoning and metrics (no hallucinations)
     """
     
-    # Digest times in UTC (Portugal winter time = UTC)
     DIGEST_TIMES = [
-        time(11, 0),  # 11:00 - Morning
-        time(16, 0),  # 16:00 - Afternoon
-        time(20, 0),  # 20:00 - Evening
+        time(11, 0),
+        time(16, 0),
+        time(20, 0),
     ]
     
     def __init__(
@@ -57,23 +57,26 @@ class DigestScheduler:
         
         self._running = False
         self.last_digest_time: Optional[datetime] = None
+        
+        # Future: Store for feedback loop
+        self.prediction_history: List[Dict[str, Any]] = []
+    
+    # =========================================
+    # HARD LOGIC: All calculations in Python
+    # =========================================
     
     def _calculate_ev(self, bet: ValueBet) -> float:
-        """Calculate Expected Value formulaically (not LLM)."""
-        # EV = (Win Probability * Net Profit) - (Lose Probability * Loss)
-        # For underdogs: probability is low but payout is high
-        win_prob = bet.entry_price / 100  # Entry price IS the implied probability
-        payout_if_win = bet.win_amount - 1  # Net profit per $1
-        loss_if_lose = 1.0  # $1 bet
-        
+        """Calculate Expected Value (pure math, no LLM)."""
+        win_prob = bet.entry_price / 100
+        payout_if_win = bet.win_amount - 1
+        loss_if_lose = 1.0
         ev = (win_prob * payout_if_win) - ((1 - win_prob) * loss_if_lose)
         return round(ev, 3)
     
     def _calculate_confidence(self, bet: ValueBet) -> str:
-        """Calculate confidence level based on metrics (not LLM)."""
+        """Calculate confidence level (pure logic, no LLM)."""
         score = 0
         
-        # Liquidity factor (higher = better)
         if bet.liquidity >= 50000:
             score += 3
         elif bet.liquidity >= 10000:
@@ -81,90 +84,120 @@ class DigestScheduler:
         elif bet.liquidity >= 1000:
             score += 1
         
-        # Resolution time factor (sooner = better for tracking)
         if bet.days_to_resolution <= 14:
             score += 2
         elif bet.days_to_resolution <= 30:
             score += 1
         
-        # Category reliability factor
         if bet.category in ["Politics", "Crypto"]:
             score += 2
         elif bet.category in ["Weather", "AI/Tech"]:
             score += 1
         
-        # Classify
         if score >= 5:
             return "HIGH"
         elif score >= 3:
             return "MEDIUM"
-        else:
-            return "LOW"
+        return "LOW"
     
-    async def curate_picks(self, candidates: List[ValueBet]) -> List[CuratedPick]:
-        """Use LLM as a SELECTOR with strict data grounding."""
+    def _generate_reasoning(self, bet: ValueBet) -> str:
+        """
+        Template-based reasoning (NO LLM).
+        This is the key anti-hallucination feature.
+        """
+        parts = []
+        
+        # Liquidity insight
+        if bet.liquidity >= 50000:
+            parts.append("High liquidity ($50k+) ensures easy entry/exit")
+        elif bet.liquidity >= 10000:
+            parts.append("Decent liquidity ($10k+)")
+        else:
+            parts.append("Lower liquidity - consider position size")
+        
+        # Timeframe insight
+        if bet.days_to_resolution <= 7:
+            parts.append("resolves within a week (fast feedback)")
+        elif bet.days_to_resolution <= 30:
+            parts.append(f"resolves in {bet.days_to_resolution} days")
+        else:
+            parts.append(f"longer-term ({bet.days_to_resolution} days)")
+        
+        return ", ".join(parts) + "."
+    
+    def _generate_risk_context(self, bet: ValueBet) -> str:
+        """
+        Template-based risk context (NO LLM).
+        Provides insight that math doesn't capture.
+        """
+        # Category-based risk
+        category_risk = {
+            "Politics": "Political markets can be binary - careful with timing around events.",
+            "Crypto": "High volatility expected. Price can move rapidly.",
+            "Weather": "Weather forecasts beyond 7 days have lower accuracy.",
+            "AI/Tech": "Tech announcements can cause sudden resolution.",
+            "Arbitrage": "Multi-leg trade - ensure both sides execute.",
+            "Other": "General market - verify resolution criteria.",
+        }
+        
+        base_risk = category_risk.get(bet.category, category_risk["Other"])
+        
+        # Add EV-specific context
+        ev = getattr(bet, 'calculated_ev', 0)
+        if ev > 0.1:
+            return f"Strong edge detected. {base_risk}"
+        elif ev > 0:
+            return f"Marginal edge. {base_risk}"
+        else:
+            return f"Negative EV - included for diversity. {base_risk}"
+    
+    # =========================================
+    # LLM: ONLY for Selection (IDs)
+    # =========================================
+    
+    async def _llm_select_ids(self, candidates: List[ValueBet]) -> List[int]:
+        """
+        LLM ONLY selects which IDs to include.
+        No reasoning, no text generation - just IDs.
+        """
         if not candidates:
             return []
         
-        # Pre-calculate all metrics (data-first, not LLM)
-        for c in candidates:
-            c.calculated_ev = self._calculate_ev(c)
-            c.confidence = self._calculate_confidence(c)
-        
-        # Prepare candidate list with ALL data for LLM
-        candidate_list = []
-        for i, c in enumerate(candidates[:30]):  # Limit to 30
-            candidate_list.append({
+        # Prepare minimal data for selection
+        candidate_summary = []
+        for i, c in enumerate(candidates[:30]):
+            candidate_summary.append({
                 "id": i,
-                "market": c.market_name,
+                "market": c.market_name[:50],
                 "category": c.category,
-                "odds": round(c.entry_price, 1),
-                "side": c.bet_side,
-                "payout_multiplier": round(c.potential_multiplier, 2),
-                "liquidity_usd": round(c.liquidity, 0),
-                "days_to_resolve": c.days_to_resolution,
-                "ev_score": c.calculated_ev,  # Pre-calculated
-                "confidence": c.confidence,  # Pre-calculated
+                "confidence": getattr(c, 'confidence', 'MEDIUM'),
+                "ev": getattr(c, 'calculated_ev', 0),
+                "liquidity": int(c.liquidity),
+                "days": c.days_to_resolution,
             })
         
-        # STRICT prompt - LLM can ONLY reference provided data
-        prompt = f"""You are a Polymarket analyst. From this list of candidates, select exactly {self.picks_per_digest} (or fewer if not enough qualify).
-
-SELECTION RULES (use ONLY provided data):
-1. Prioritize DIVERSE categories (max 3 from same category)
-2. Prefer HIGH confidence candidates
-3. Prefer positive EV scores
-4. Prefer higher liquidity (>$5000)
-5. Prefer sooner resolution (<30 days)
-
-CANDIDATES (all data is real-time from Polymarket):
-{json.dumps(candidate_list, indent=2)}
-
-For each selection, provide:
-- The candidate ID (must match list)
-- A 1-sentence rationale using ONLY the provided metrics
-
-OUTPUT STRICT JSON ONLY:
-{{
-  "selections": [
-    {{"id": 0, "rationale": "Selected due to HIGH confidence, $X liquidity, and Y days to resolve."}},
-    {{"id": 5, "rationale": "Category diversity (Weather), positive EV of Z."}},
-  ]
-}}
+        # Minimal prompt - selection only
+        prompt = f"""Select {self.picks_per_digest} market IDs from this list.
 
 RULES:
-- Reference ONLY numbers from the provided data
-- Do NOT invent facts or news
-- Do NOT make price predictions
-- If fewer than {self.picks_per_digest} qualify, return fewer"""
+1. MAX 3 from same category (diversity)
+2. Prefer HIGH confidence
+3. Prefer positive EV
+4. Prefer higher liquidity
+5. Skip duplicates/similar markets
+
+CANDIDATES:
+{json.dumps(candidate_summary, indent=1)}
+
+OUTPUT JSON ONLY (just IDs, no reasoning):
+{{"ids": [0, 3, 7, 12, ...]}}"""
 
         try:
             response = await self.groq.chat([
-                {"role": "system", "content": "You are a data analyst. Output ONLY valid JSON. Never invent facts."},
+                {"role": "system", "content": "Output only valid JSON with selected IDs."},
                 {"role": "user", "content": prompt}
             ])
             
-            # Parse response
             content = response.strip()
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
@@ -172,102 +205,97 @@ RULES:
                 content = content.split("```")[1].split("```")[0]
             
             data = json.loads(content)
-            selections = data.get("selections", data.get("picks", []))
+            ids = data.get("ids", [])
             
-            # VALIDATION: Check LLM output against input data
-            curated = []
-            for rank, pick in enumerate(selections[:self.picks_per_digest], 1):
-                idx = pick.get("id", -1)
-                reasoning = pick.get("rationale", pick.get("reasoning", ""))
-                
-                # Validate ID exists
-                if not (0 <= idx < len(candidates)):
-                    logger.warning("invalid_pick_id", id=idx)
-                    continue
-                
-                candidate = candidates[idx]
-                
-                # Validation: Check rationale doesn't contain hallucinated numbers
-                # (basic check - could be more sophisticated)
-                if self._validate_reasoning(reasoning, candidate_list[idx]):
-                    curated.append(CuratedPick(
-                        bet=candidate,
-                        reasoning=reasoning,
-                        rank=rank,
-                        ev_score=candidate.calculated_ev,
-                        confidence=candidate.confidence,
-                    ))
-                else:
-                    # Use fallback reasoning if validation fails
-                    curated.append(CuratedPick(
-                        bet=candidate,
-                        reasoning=f"{candidate.confidence} confidence, ${candidate.liquidity:,.0f} liquidity.",
-                        rank=rank,
-                        ev_score=candidate.calculated_ev,
-                        confidence=candidate.confidence,
-                    ))
-            
-            return curated
+            # Validate IDs are in range
+            valid_ids = [i for i in ids if isinstance(i, int) and 0 <= i < len(candidates)]
+            return valid_ids[:self.picks_per_digest]
             
         except Exception as e:
-            logger.error("curation_error", error=str(e))
-            # FALLBACK: Sort by formula, no LLM
-            return self._fallback_selection(candidates)
+            logger.error("llm_selection_error", error=str(e))
+            return []
     
-    def _validate_reasoning(self, reasoning: str, candidate_data: dict) -> bool:
-        """Validate LLM reasoning against actual data (anti-hallucination)."""
-        # Extract numbers from reasoning
-        numbers_in_reasoning = re.findall(r'\$?[\d,]+\.?\d*', reasoning)
+    async def curate_picks(self, candidates: List[ValueBet]) -> List[CuratedPick]:
+        """
+        Hybrid curation:
+        1. Python calculates all metrics
+        2. LLM selects IDs only
+        3. Python generates all text (templates)
+        """
+        if not candidates:
+            return []
         
-        # For now, basic validation - could be enhanced
-        # Check it's not making up large numbers
-        for num_str in numbers_in_reasoning:
-            try:
-                num = float(num_str.replace('$', '').replace(',', ''))
-                # Flag if number is suspiciously large and not in data
-                if num > 1000000 and num not in [candidate_data.get('liquidity_usd', 0)]:
-                    return False
-            except:
-                pass
+        # Step 1: Calculate all metrics in Python (HARD LOGIC)
+        for c in candidates:
+            c.calculated_ev = self._calculate_ev(c)
+            c.confidence = self._calculate_confidence(c)
         
-        return True
+        # Step 2: LLM selects IDs (or fallback to formula)
+        selected_ids = await self._llm_select_ids(candidates)
+        
+        if not selected_ids:
+            # Fallback: Pure formula selection
+            logger.info("using_fallback_selection")
+            selected_ids = self._formula_select_ids(candidates)
+        
+        # Step 3: Build picks with TEMPLATE reasoning (NO LLM)
+        curated = []
+        for rank, idx in enumerate(selected_ids, 1):
+            if 0 <= idx < len(candidates):
+                bet = candidates[idx]
+                curated.append(CuratedPick(
+                    bet=bet,
+                    reasoning=self._generate_reasoning(bet),
+                    rank=rank,
+                    ev_score=bet.calculated_ev,
+                    confidence=bet.confidence,
+                    risk_context=self._generate_risk_context(bet),
+                ))
+        
+        return curated
     
-    def _fallback_selection(self, candidates: List[ValueBet]) -> List[CuratedPick]:
-        """Formula-based selection when LLM fails (no hallucination risk)."""
-        # Score by: confidence + liquidity + EV
+    def _formula_select_ids(self, candidates: List[ValueBet]) -> List[int]:
+        """Pure formula selection (no LLM, no hallucination risk)."""
         def score(c):
-            conf_score = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(getattr(c, 'confidence', 'LOW'), 1)
-            liq_score = min(3, c.liquidity / 20000)  # Max 3 for 60k+
-            ev_score = getattr(c, 'calculated_ev', 0) * 10  # Weight EV
-            return conf_score + liq_score + ev_score
+            conf = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(getattr(c, 'confidence', 'LOW'), 1)
+            liq = min(3, c.liquidity / 20000)
+            ev = getattr(c, 'calculated_ev', 0) * 10
+            return conf + liq + ev
         
-        sorted_candidates = sorted(candidates, key=score, reverse=True)
+        # Sort by score
+        indexed = [(i, score(c)) for i, c in enumerate(candidates)]
+        indexed.sort(key=lambda x: x[1], reverse=True)
         
-        return [
-            CuratedPick(
-                bet=c, 
-                reasoning=f"Formula selection: {getattr(c, 'confidence', 'N/A')} confidence, ${c.liquidity:,.0f} liquidity.",
-                rank=i+1,
-                ev_score=getattr(c, 'calculated_ev', 0),
-                confidence=getattr(c, 'confidence', 'LOW'),
-            )
-            for i, c in enumerate(sorted_candidates[:self.picks_per_digest])
-        ]
+        # Enforce category diversity
+        selected = []
+        category_count = {}
+        for idx, _ in indexed:
+            cat = candidates[idx].category
+            if category_count.get(cat, 0) < 3:
+                selected.append(idx)
+                category_count[cat] = category_count.get(cat, 0) + 1
+            if len(selected) >= self.picks_per_digest:
+                break
+        
+        return selected
     
-    def format_digest(self, picks: List[CuratedPick], is_morning: bool) -> str:
-        """Format digest with timestamps and sources (anti-hallucination)."""
+    # =========================================
+    # DIGEST FORMATTING (Templates only)
+    # =========================================
+    
+    def format_digest(self, picks: List[CuratedPick], edition: str = "Morning") -> str:
+        """Format digest using templates (no LLM text)."""
         now = datetime.now(timezone.utc)
         fetch_time = now.strftime("%H:%M UTC")
         date_str = now.strftime("%b %d, %Y")
         
-        edition_map = {True: "Morning", False: "Evening"}
-        edition = edition_map.get(is_morning, "Afternoon")
+        queue_size = len(self.scanner.candidates) if hasattr(self.scanner, 'candidates') else 0
         
         lines = [
             f"🎯 *POLYMARKET DIGEST*",
             f"📅 {edition} • {date_str} • {fetch_time}",
             f"",
-            f"From {len(self.scanner.candidates)} scanned markets, selected {len(picks)} data-driven picks.",
+            f"Scanned {queue_size + len(picks)} markets → {len(picks)} selected",
             "",
             "━━━━━━━━━━━━━━━━━━━━━",
         ]
@@ -277,105 +305,104 @@ RULES:
         
         for pick in picks:
             bet = pick.bet
-            total_invested += 1  # $1 per bet
+            total_invested += 1
             total_potential += bet.win_amount
             
-            # Confidence emoji
             conf_emoji = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}.get(pick.confidence, "⚪")
             
             lines.extend([
                 "",
-                f"*#{pick.rank}* {conf_emoji} {pick.confidence}",
+                f"*#{pick.rank}* {conf_emoji} {pick.confidence} | EV: {pick.ev_score:+.2f}",
                 f"",
-                f"📊 *{bet.market_name[:60]}*",
-                f"   Odds: {bet.bet_side} {bet.entry_price:.1f}% | Liquidity: ${bet.liquidity:,.0f}",
-                f"   Resolves: {bet.days_to_resolution} days | EV: {pick.ev_score:+.2f}",
+                f"📊 *{bet.market_name[:55]}*",
+                f"   {bet.bet_side} @ {bet.entry_price:.1f}% | ${bet.liquidity:,.0f} liq",
                 "",
-                f"💵 *$1 Bet:* Win ${bet.win_amount - 1:.2f} ({bet.potential_multiplier:.1f}x) or Lose $1",
+                f"💵 *$1 →* ${bet.win_amount:.2f} win ({bet.potential_multiplier:.1f}x) or -$1",
                 "",
-                f"🧠 _{pick.reasoning}_",
+                f"📝 _{pick.reasoning}_",
+                f"⚠️ _{pick.risk_context[:60]}_",
                 "",
-                f"🔗 [Place Bet](https://polymarket.com/event/{bet.slug})",
+                f"🔗 [Bet](https://polymarket.com/event/{bet.slug}) | ⏱️ {bet.days_to_resolution}d",
                 "",
                 "━━━━━━━━━━━━━━━━━━━━━",
             ])
         
-        # Summary with calculated metrics
+        # Summary
         avg_ev = sum(p.ev_score for p in picks) / len(picks) if picks else 0
         
         lines.extend([
             "",
             f"📊 *SUMMARY*",
-            f"• Invested: ${total_invested:.2f} | Max Return: ${total_potential:.2f}",
-            f"• Average EV: {avg_ev:+.3f}",
-            f"• Break-even: ~{int(100/len(picks))}% win rate",
+            f"• ${total_invested} → ${total_potential:.2f} max",
+            f"• Avg EV: {avg_ev:+.3f}",
             "",
-            f"⚠️ *Not financial advice. Data from Polymarket at {fetch_time}.*",
-            f"",
-            f"⏰ Next digest: {self._get_next_digest_time()}",
+            f"_Data: Polymarket @ {fetch_time}. Not advice._",
+            f"⏰ Next: {self._get_next_digest_time()}",
         ])
         
         return "\n".join(lines)
     
     def _get_next_digest_time(self) -> str:
-        """Get next scheduled digest time."""
         now = datetime.now(timezone.utc)
         current_minutes = now.hour * 60 + now.minute
         
         for dt in sorted(self.DIGEST_TIMES, key=lambda t: t.hour * 60 + t.minute):
-            dt_minutes = dt.hour * 60 + dt.minute
-            if dt_minutes > current_minutes:
+            if dt.hour * 60 + dt.minute > current_minutes:
                 return f"{dt.hour:02d}:{dt.minute:02d} UTC"
         
-        # Wrap to next day
         return f"{self.DIGEST_TIMES[0].hour:02d}:{self.DIGEST_TIMES[0].minute:02d} UTC"
     
-    def _is_digest_time(self) -> Optional[bool]:
-        """Check if it's time for a digest."""
+    def _get_edition_name(self) -> str:
         now = datetime.now(timezone.utc)
-        current_time = now.time()
+        if now.hour < 13:
+            return "Morning"
+        elif now.hour < 18:
+            return "Afternoon"
+        return "Evening"
+    
+    # =========================================
+    # SCHEDULER LOGIC
+    # =========================================
+    
+    def _is_digest_time(self) -> bool:
+        now = datetime.now(timezone.utc)
+        current_minutes = now.hour * 60 + now.minute
         
-        for digest_time in self.DIGEST_TIMES:
-            digest_minutes = digest_time.hour * 60 + digest_time.minute
-            current_minutes = current_time.hour * 60 + current_time.minute
-            
-            if abs(digest_minutes - current_minutes) <= 5:
+        for dt in self.DIGEST_TIMES:
+            dt_minutes = dt.hour * 60 + dt.minute
+            if abs(dt_minutes - current_minutes) <= 5:
                 if self.last_digest_time:
-                    time_since_last = now - self.last_digest_time
-                    if time_since_last.total_seconds() < 3600:
-                        return None
-                
-                return digest_time.hour < 15
-        
-        return None
+                    if (now - self.last_digest_time).total_seconds() < 3600:
+                        return False
+                return True
+        return False
     
     async def check_and_send_digest(self) -> bool:
-        """Check if it's digest time and send if so."""
-        is_morning = self._is_digest_time()
-        
-        if is_morning is None:
+        if not self._is_digest_time():
             return False
         
-        logger.info("digest_time_triggered", is_morning=is_morning)
+        logger.info("digest_time_triggered")
         
         candidates = self.scanner.get_candidates()
-        
         if not candidates:
             logger.info("no_candidates_for_digest")
             return False
         
         picks = await self.curate_picks(candidates)
-        
         if not picks:
             logger.info("no_picks_selected")
             return False
         
-        message = self.format_digest(picks, is_morning)
+        message = self.format_digest(picks, self._get_edition_name())
         
         if self.send_callback:
             try:
                 await self.send_callback(message)
-                logger.info("digest_sent", picks=len(picks), is_morning=is_morning)
+                logger.info("digest_sent", picks=len(picks))
+                
+                # Store for future feedback loop
+                self._store_predictions(picks)
+                
             except Exception as e:
                 logger.error("digest_send_error", error=str(e))
                 return False
@@ -386,8 +413,25 @@ RULES:
         
         return True
     
+    def _store_predictions(self, picks: List[CuratedPick]):
+        """Store predictions for future feedback loop (resolution tracking)."""
+        for pick in picks:
+            self.prediction_history.append({
+                "market_id": pick.bet.market_id,
+                "market_name": pick.bet.market_name,
+                "bet_side": pick.bet.bet_side,
+                "entry_price": pick.bet.entry_price,
+                "predicted_ev": pick.ev_score,
+                "confidence": pick.confidence,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "resolved": False,
+                "actual_pnl": None,  # To be filled when market resolves
+            })
+        
+        # Keep last 100 predictions
+        self.prediction_history = self.prediction_history[-100:]
+    
     async def start(self):
-        """Start the digest scheduler."""
         self._running = True
         logger.info("digest_scheduler_started", times=[str(t) for t in self.DIGEST_TIMES])
         
@@ -400,11 +444,9 @@ RULES:
             await asyncio.sleep(60)
     
     def stop(self):
-        """Stop the scheduler."""
         self._running = False
     
     async def send_test_digest(self) -> str:
-        """Send a test digest immediately."""
         candidates = self.scanner.get_candidates()
         
         if not candidates:
@@ -419,11 +461,10 @@ RULES:
         if not picks:
             return "No picks selected."
         
-        message = self.format_digest(picks, is_morning=True)
+        message = self.format_digest(picks, "Test")
         
         if self.send_callback:
             await self.send_callback(message)
-            
             sent_ids = [p.bet.market_id for p in picks]
             self.scanner.clear_candidates(sent_ids)
         
