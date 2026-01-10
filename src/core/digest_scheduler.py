@@ -31,8 +31,9 @@ class DigestScheduler:
     
     # Digest times in UTC (Portugal winter time = UTC)
     DIGEST_TIMES = [
-        time(11, 0),  # 11:00
-        time(20, 0),  # 20:00
+        time(11, 0),  # 11:00 - Morning
+        time(16, 0),  # 16:00 - Afternoon
+        time(20, 0),  # 20:00 - Evening
     ]
     
     def __init__(
