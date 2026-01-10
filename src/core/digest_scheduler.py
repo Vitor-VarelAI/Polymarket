@@ -225,21 +225,19 @@ OUTPUT JSON ONLY (just IDs, no reasoning):
         if not candidates:
             return []
         
-        # Step 0: PRE-FILTER bad candidates (before any processing)
+        # Step 0: PRE-FILTER only broken/unusable entries
         filtered = []
         for c in candidates:
-            # Skip arbitrage (not actionable)
+            # Skip arbitrage (multi-leg, format broken)
             if c.category == "Arbitrage" or c.bet_side == "ARBITRAGE":
-                continue
-            # Skip sports
-            if c.category == "Sports":
                 continue
             # Skip already resolved (0 days)
             if c.days_to_resolution <= 0:
                 continue
-            # Skip placeholder entries
+            # Skip placeholder entries (broken data)
             if c.entry_price == 50 and c.potential_multiplier == 1:
                 continue
+            # NOTE: Sports NOT filtered - let selection criteria decide
             filtered.append(c)
         
         candidates = filtered
