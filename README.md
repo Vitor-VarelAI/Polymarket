@@ -1,29 +1,37 @@
 # 🐋 ExaSignal: AI-Powered Polymarket Trading Bot
 
-ExaSignal é um sistema automatizado de trading signals para Polymarket, inspirado em bots lendários como **SwissTony** (que fez $3.7M em 6 meses).
+ExaSignal é um sistema automatizado de trading signals para Polymarket, com **digest diário curado por AI** para evitar spam e hallucinations.
 
 ## 🎯 O que faz
 
-O bot corre 24/7 e envia alertas para **Telegram** quando encontra oportunidades:
+O bot corre 24/7, acumula oportunidades de múltiplos scanners, e envia **3 digests por dia** com os 10 melhores picks:
 
-| Scanner | Estratégia | Intervalo |
-|---------|------------|-----------|
-| **NewsMonitor** | Notícias que impactam mercados | 5 min |
-| **CorrelationDetector** | Arbitragem entre mercados correlacionados | 10 min |
-| **SafeBetsScanner** | Mercados com 97%+ odds (lucro 1-3%) | 30 min |
-| **WeatherScanner** | Weather markets undervalued (≤10¢) | 3 horas |
+| Horário | Digest |
+|---------|--------|
+| 11:00 UTC | Morning Digest |
+| 16:00 UTC | Afternoon Digest |
+| 20:00 UTC | Evening Digest |
+
+### Scanners Activos (todos alimentam o digest)
+
+| Scanner | Estratégia | O que encontra |
+|---------|------------|----------------|
+| **ValueBets** | Underdogs (2-50% odds) | Bets com alto payout |
+| **SafeBets** | 97%+ odds | Lucros pequenos mas seguros |
+| **Correlation** | Arbitragem | Mercados correlacionados |
+| **Weather** | Weather forecast vs market | Edge meteorológico |
+| **NewsMonitor** | Notícias + mercados | Alpha de notícias |
 
 ## 📱 Comandos Telegram
 
 | Comando | Descrição |
 |---------|-----------|
 | `/start` | Registo no bot |
-| `/test_alert` | Testar se broadcasts funcionam |
-| `/scanner_status` | Ver estado dos scanners |
-| `/markets` | Ver mercados monitorizados |
-| `/status` | Estado do sistema |
-| `/health` | Verificar saúde |
-| `/signals` | Ver sinais recentes |
+| `/test_digest` | 🆕 Gerar digest agora |
+| `/scanner_status` | Ver queue e candidatos |
+| `/debug` | Diagnóstico detalhado |
+| `/test_alert` | Testar conexão |
+| `/markets` | Ver mercados |
 | `/investigate` | Investigar mercado específico |
 
 ## 🚀 Quick Start
@@ -34,170 +42,131 @@ O bot corre 24/7 e envia alertas para **Telegram** quando encontra oportunidades
 git clone https://github.com/Vitor-VarelAI/Polymarket.git
 cd Polymarket
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ### 2. Configurar `.env`
 
-Copia `.env.example` para `.env` e preenche as API keys:
-
 ```bash
 cp .env.example .env
 ```
 
-**APIs OBRIGATÓRIAS:**
-- `TELEGRAM_BOT_TOKEN` - Criar bot em @BotFather
-- `GROQ_API_KEY` - https://console.groq.com
+**OBRIGATÓRIAS:**
+- `TELEGRAM_BOT_TOKEN` - @BotFather
+- `TELEGRAM_ADMIN_ID` - @userinfobot (recebe alertas mesmo após reset)
+- `GROQ_API_KEY` - console.groq.com
 
-**APIs RECOMENDADAS (grátis):**
-- `NEWSAPI_KEY` - https://newsapi.org
-- `FINNHUB_API_KEY` - https://finnhub.io
-- `BRAVE_API_KEY` - https://brave.com/search/api
+**RECOMENDADAS (grátis):**
+- `NEWSAPI_KEY`, `FINNHUB_API_KEY`, `BRAVE_API_KEY`
+- Weather: `TOMORROW_API_KEY`, `OPENWEATHER_API_KEY`, `WEATHERAPI_KEY`
 
-**APIs WEATHER (todas grátis):**
-- `TOMORROW_API_KEY` - https://www.tomorrow.io
-- `OPENWEATHER_API_KEY` - https://openweathermap.org/api
-- `WEATHERAPI_KEY` - https://www.weatherapi.com
-
-### 3. Correr Localmente
+### 3. Correr
 
 ```bash
 python -m src.main
 ```
 
-### 4. Deploy no Railway (Recomendado)
+### 4. Deploy Railway
 
-1. Fork este repo para a tua conta GitHub
-2. Vai a [Railway.app](https://railway.app)
-3. New Project → Deploy from GitHub
-4. Seleciona o repo
-5. Adiciona as variáveis de ambiente
-6. Deploy automático!
+1. Fork → Railway.app → Deploy from GitHub
+2. Adicionar variáveis de ambiente
+3. Deploy automático!
 
-## 📊 Estratégias Implementadas
+## 📊 Sistema Anti-Hallucination
 
-### 1. 📰 News Alpha (NewsMonitor)
-- Busca notícias de múltiplas fontes (NewsAPI, Finnhub, RSS, Google News)
-- Match com mercados Polymarket
-- Gera sinais quando há divergência entre notícia e odds
+O digest usa um sistema estrito para evitar informação inventada:
 
-### 2. ⚡ Arbitragem de Correlação (CorrelationDetector)
-- Usa AI para identificar mercados correlacionados
-- Ex: "Trump wins" deve ter odds similares a "Republican wins"
-- Alerta quando há divergência >2%
+```
+Scanners → Acumulam candidatos
+              ↓
+    EV e Confidence calculados por FÓRMULA
+              ↓
+    LLM só SELECCIONA (não inventa)
+              ↓
+    Validação pós-LLM (detecta números falsos)
+              ↓
+    Digest com timestamps e fontes
+```
 
-### 3. 💰 Safe Bets / Vacuum Cleaner (SafeBetsScanner)
-- Encontra mercados com 97%+ de probabilidade
-- Lucro pequeno mas "garantido" (1-3¢ por share)
-- Inspirado na estratégia SwissTony
+### Métricas Calculadas (não LLM)
 
-### 4. 🌦️ Weather Value (WeatherScanner)
-- Foca em weather markets (temperatura, chuva, etc.)
-- Só aposta em outcomes ≤10¢ (underdogs)
-- Usa 4 APIs weather para consenso de previsão
-- Alerta quando forecast diz probabilidade diferente do mercado
+| Métrica | Fórmula |
+|---------|---------|
+| **EV Score** | `(win_prob × payout) - (lose_prob × loss)` |
+| **Confidence** | Baseado em liquidity + categoria + dias |
 
-## 🔧 Configuração Avançada
+## 📈 Exemplo de Digest
 
-### Ajustar Thresholds
+```
+🎯 POLYMARKET DIGEST
+📅 Morning • Jan 10, 2026 • 11:00 UTC
+
+From 45 scanned markets, selected 10 data-driven picks.
+
+━━━━━━━━━━━━━━━━━━━━━
+
+#1 🟢 HIGH
+
+📊 Will ETH hit $10k in 2026?
+   Odds: YES 15% | Liquidity: $85,000
+   Resolves: 45 days | EV: +0.12
+
+💵 $1 Bet: Win $5.67 (6.7x) or Lose $1
+
+🧠 HIGH confidence, diversified category, positive EV.
+
+🔗 Place Bet
+
+━━━━━━━━━━━━━━━━━━━━━
+
+📊 SUMMARY
+• Invested: $10 | Max Return: $58
+• Average EV: +0.08
+• Break-even: ~10% win rate
+
+⚠️ Not financial advice. Data from Polymarket at 11:00 UTC.
+```
+
+## 🛠️ Arquitectura
+
+```
+src/
+├── main.py                    # Entry point
+├── core/
+│   ├── digest_scheduler.py    # 🆕 Anti-hallucination digest
+│   ├── value_bets_scanner.py  # 🆕 Underdog scanner
+│   ├── telegram_bot.py        # Bot + commands
+│   ├── safe_bets_scanner.py   # 97%+ odds
+│   ├── correlation_detector.py# Arbitrage
+│   ├── weather_scanner.py     # Weather value
+│   └── news_monitor.py        # News alpha
+├── api/
+│   ├── gamma_client.py        # Polymarket API
+│   ├── groq_client.py         # LLM
+│   └── weather_client.py      # Multi-source weather
+└── storage/
+    ├── user_db.py             # Users
+    └── rate_limiter.py        # Rate limiting
+```
+
+## ⚙️ Configuração Avançada
 
 No `src/main.py` podes ajustar:
 
 ```python
-# NewsMonitor
-min_score=70,          # Score mínimo para alertar
-min_confidence=60,     # Confiança mínima
+# ValueBetsScanner
+min_odds=2.0,        # Odds mínimas (%)
+max_odds=50.0,       # Odds máximas (%)
+min_liquidity=1000,  # Liquidez mínima ($)
 
-# CorrelationDetector
-min_edge=2.0,          # Edge mínimo (%)
-
-# SafeBetsScanner
-min_odds_threshold=97.0,  # Odds mínimas (%)
-min_liquidity=1000,       # Liquidez mínima ($)
-
-# WeatherScanner
-max_entry_price=10.0,  # Preço máximo (¢)
-min_edge=5.0,          # Edge mínimo (%)
+# DigestScheduler
+picks_per_digest=10, # Picks por digest
 ```
-
-## 📈 Exemplos de Alertas
-
-### News Signal
-```
-🟢 NEW TRADING SIGNAL 📊
-
-📰 Breaking: Fed announces rate cut...
-📊 Market: Will Fed cut rates in January?
-🎯 Direction: YES
-📈 Confidence: 85%
-```
-
-### Arbitrage
-```
-⚡ ARBITRAGE OPPORTUNITY
-
-📊 Market A: Trump wins (62.5%)
-📊 Market B: Republican wins (58.0%)
-💰 Potential Edge: 4.5%
-```
-
-### Safe Bet
-```
-💰 SAFE BET FOUND 🟢
-
-📊 Market: Will Bitcoin exist in 2025?
-📈 YES: 99.5% | NO: 0.5%
-🎯 Trade: BET YES @ 99.5¢
-💵 Profit if wins: 0.5¢ per share
-```
-
-### Weather Bet
-```
-🌦️ WEATHER VALUE BET 🟠
-
-📍 Location: New York
-🌡️ Tomorrow's High: 68°F (3 sources agree)
-🎯 Market says: 8% | Our forecast: 22%
-💰 $1 → $12.50 if wins (1150% profit)
-```
-
-## 🛠️ Arquitetura
-
-```
-src/
-├── main.py              # Entry point (Railway)
-├── api/
-│   ├── weather_client.py   # Multi-source weather
-│   ├── finnhub_client.py   # Real-time news
-│   ├── gamma_client.py     # Polymarket API
-│   └── ...
-├── core/
-│   ├── telegram_bot.py         # Bot + commands
-│   ├── news_monitor.py         # News scanning
-│   ├── correlation_detector.py # Arbitrage detection
-│   ├── safe_bets_scanner.py    # 97%+ odds
-│   ├── weather_scanner.py      # Weather value
-│   └── ...
-└── storage/
-    ├── user_db.py        # User management
-    └── rate_limiter.py   # API rate limiting
-```
-
-## 📝 Limites das APIs Gratuitas
-
-| API | Limite Gratuito | Uso Estimado/Dia |
-|-----|-----------------|------------------|
-| Tomorrow.io | 500/dia | ~40 ✓ |
-| OpenWeatherMap | 1,000/dia | ~40 ✓ |
-| WeatherAPI.com | 1M/mês | ~40 ✓ |
-| NewsAPI | 100/dia | ~50 ✓ |
-| Finnhub | 60/min | ~200 ✓ |
-| Groq | 30/min | Variable ✓ |
 
 ## ⚠️ Disclaimer
 
-Este é um projeto educacional. Trading envolve risco. Não apostes dinheiro que não podes perder.
+Projecto educacional. Trading envolve risco. Não apostes dinheiro que não podes perder.
 
 ## 📜 License
 

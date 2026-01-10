@@ -546,16 +546,19 @@ class ExaSignal:
             startup_msg = f"""
 🚀 *ExaSignal Online!*
 
-O sistema arrancou às {now}
+Sistema iniciado às {now}
 
-📡 *Scanners Ativos:*
-• NewsMonitor (cada 5 min)
-• CorrelationDetector (cada 10 min)  
-• SafeBetsScanner (cada 30 min)
-• WeatherScanner (cada 2 horas)
+📊 *Digest System:*
+• 11:00 UTC - Morning Digest
+• 16:00 UTC - Afternoon Digest
+• 20:00 UTC - Evening Digest
 
-✅ Vais receber alertas automaticamente.
-Use /debug para ver o estado dos scanners.
+🎯 *Cada digest inclui:*
+• 10 melhores picks curados por AI
+• EV e Confidence calculados
+• Links directos para Polymarket
+
+💡 Comandos: /test\\_digest /debug /scanner\\_status
 """
             
             sent_count = 0
