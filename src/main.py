@@ -173,14 +173,14 @@ class ExaSignal:
         # =======================================================
         # NEW: Value Bets Digest System (replaces instant alerts)
         # =======================================================
-        # Collects underdog opportunities (5-30% odds)
+        # Collects value bet opportunities (broader range to find more)
         self.value_bets_scanner = ValueBetsScanner(
             gamma=self.gamma,
-            min_odds=5.0,  # Minimum 5% odds
-            max_odds=30.0,  # Maximum 30% odds
-            min_liquidity=5000,  # $5k min liquidity
-            max_days_to_resolution=60,  # Max 60 days out
-            scan_interval=7200,  # Scan every 2 hours
+            min_odds=2.0,  # EXPANDED: from 5% to 2% (more underdogs)
+            max_odds=50.0,  # EXPANDED: from 30% to 50% (moderate risk too)
+            min_liquidity=1000,  # LOWERED: from $5k to $1k (more markets)
+            max_days_to_resolution=90,  # EXPANDED: from 60 to 90 days
+            scan_interval=3600,  # Scan every 1 hour (was 2)
         )
         
         # Digest scheduler - sends curated picks at 11:00 and 20:00 UTC
@@ -188,7 +188,7 @@ class ExaSignal:
             scanner=self.value_bets_scanner,
             groq=self.groq,
             send_callback=None,  # Set in start()
-            picks_per_digest=4,  # 4-5 picks per digest
+            picks_per_digest=10,  # 10 best picks per digest
         )
         
         # Estado
@@ -362,6 +362,85 @@ class ExaSignal:
         
         logger.info("digest_broadcast_complete", sent_to=sent_count)
     
+    async def _add_to_digest_queue(self, safe_bet):
+        """Convert SafeBet to ValueBet format and add to digest queue."""
+        from src.core.value_bets_scanner import ValueBet
+        
+        # Convert to unified ValueBet format
+        vb = ValueBet(
+            market_id=safe_bet.market_id,
+            market_name=safe_bet.market_name,
+            slug=safe_bet.slug,
+            category=safe_bet.category,
+            yes_odds=safe_bet.yes_odds,
+            no_odds=safe_bet.no_odds,
+            bet_side=safe_bet.bet_side,
+            entry_price=safe_bet.entry_price,
+            potential_multiplier=100 / safe_bet.entry_price if safe_bet.entry_price > 0 else 1,
+            shares_for_dollar=int(100 / safe_bet.entry_price) if safe_bet.entry_price > 0 else 0,
+            win_amount=(100 / safe_bet.entry_price) if safe_bet.entry_price > 0 else 0,
+            liquidity=safe_bet.liquidity,
+            volume=safe_bet.volume,
+        )
+        
+        # Add to scanner queue (avoiding duplicates)
+        if vb.market_id not in self.value_bets_scanner.sent_markets:
+            existing = {c.market_id for c in self.value_bets_scanner.candidates}
+            if vb.market_id not in existing:
+                self.value_bets_scanner.candidates.append(vb)
+                logger.info("safe_bet_added_to_digest_queue", market=vb.market_name[:30])
+    
+    async def _add_arbitrage_to_digest_queue(self, opportunity):
+        """Convert ArbitrageOpportunity to ValueBet format and add to digest queue."""
+        from src.core.value_bets_scanner import ValueBet
+        
+        # Create a combined bet for arbitrage
+        vb = ValueBet(
+            market_id=f"arb_{opportunity.pair.market_a_id}_{opportunity.pair.market_b_id}",
+            market_name=f"ARBITRAGE: {opportunity.pair.market_a_name[:25]} vs {opportunity.pair.market_b_name[:25]}",
+            slug=opportunity.pair.market_a_id,
+            category="Arbitrage",
+            yes_odds=opportunity.odds_a,
+            no_odds=opportunity.odds_b,
+            bet_side="ARBITRAGE",
+            entry_price=50,  # Placeholder
+            potential_multiplier=1 + (opportunity.edge / 100),
+            shares_for_dollar=1,
+            win_amount=1 + (opportunity.edge / 100),
+            liquidity=10000,  # Assume good liquidity
+        )
+        
+        if vb.market_id not in self.value_bets_scanner.sent_markets:
+            existing = {c.market_id for c in self.value_bets_scanner.candidates}
+            if vb.market_id not in existing:
+                self.value_bets_scanner.candidates.append(vb)
+                logger.info("arbitrage_added_to_digest_queue", edge=opportunity.edge)
+    
+    async def _add_weather_to_digest_queue(self, weather_bet):
+        """Convert WeatherValueBet to ValueBet format and add to digest queue."""
+        from src.core.value_bets_scanner import ValueBet
+        
+        vb = ValueBet(
+            market_id=weather_bet.market_id,
+            market_name=f"🌦️ {weather_bet.market_name}",
+            slug=weather_bet.slug,
+            category="Weather",
+            yes_odds=weather_bet.market_odds,
+            no_odds=100 - weather_bet.market_odds,
+            bet_side=weather_bet.bet_side,
+            entry_price=weather_bet.entry_price,
+            potential_multiplier=100 / weather_bet.entry_price if weather_bet.entry_price > 0 else 1,
+            shares_for_dollar=int(100 / weather_bet.entry_price) if weather_bet.entry_price > 0 else 0,
+            win_amount=(100 / weather_bet.entry_price) if weather_bet.entry_price > 0 else 0,
+            liquidity=weather_bet.liquidity,
+        )
+        
+        if vb.market_id not in self.value_bets_scanner.sent_markets:
+            existing = {c.market_id for c in self.value_bets_scanner.candidates}
+            if vb.market_id not in existing:
+                self.value_bets_scanner.candidates.append(vb)
+                logger.info("weather_bet_added_to_digest_queue", market=vb.market_name[:30])
+    
     async def start(self):
         """Inicia o sistema."""
         logger.info("exasignal_starting", markets=len(self.market_manager.markets))
@@ -411,31 +490,36 @@ class ExaSignal:
                    finnhub_available=self.news_monitor.finnhub.is_available if hasattr(self.news_monitor.finnhub, 'is_available') else 'unknown')
         
         # =======================================================
-        # DISABLED: These scanners sent too many instant alerts
-        # Replaced by Value Bets Digest System below
-        # =======================================================
-        # asyncio.create_task(self.correlation_detector.start_monitoring())
-        # asyncio.create_task(self.safe_bets_scanner.start_monitoring())
-        # asyncio.create_task(self.weather_scanner.start_monitoring())
-        logger.info("old_scanners_disabled", 
-                   reason="Replaced by Value Bets Digest System")
-        
-        # =======================================================
-        # NEW: Value Bets Digest System
-        # Sends curated picks at 11:00 and 20:00 UTC
+        # ALL SCANNERS NOW FEED INTO DIGEST (no instant spam)
+        # LLM picks the best 4 from ALL sources
         # =======================================================
         
         # Connect digest broadcast callback
         self.digest_scheduler.send_callback = self._broadcast_digest
         
-        # Start value bets scanner (collects candidates)
+        # Re-enable SafeBetsScanner but connect to digest queue
+        self.safe_bets_scanner.callback = self._add_to_digest_queue
+        asyncio.create_task(self.safe_bets_scanner.start_monitoring())
+        logger.info("safe_bets_scanner_started_for_digest")
+        
+        # Re-enable CorrelationDetector but connect to digest queue
+        self.correlation_detector.callback = self._add_arbitrage_to_digest_queue
+        asyncio.create_task(self.correlation_detector.start_monitoring())
+        logger.info("correlation_detector_started_for_digest")
+        
+        # Re-enable WeatherScanner but connect to digest queue
+        self.weather_scanner.callback = self._add_weather_to_digest_queue
+        asyncio.create_task(self.weather_scanner.start_monitoring())
+        logger.info("weather_scanner_started_for_digest")
+        
+        # Start value bets scanner (also feeds digest)
         asyncio.create_task(self.value_bets_scanner.start_scanning())
         logger.info("value_bets_scanner_started",
                    min_odds=self.value_bets_scanner.min_odds,
                    max_odds=self.value_bets_scanner.max_odds,
                    scan_interval=self.value_bets_scanner.scan_interval)
         
-        # Start digest scheduler (sends at 11:00 and 20:00)
+        # Start digest scheduler (sends at 11:00, 16:00, 20:00)
         asyncio.create_task(self.digest_scheduler.start())
         logger.info("digest_scheduler_started",
                    times=["11:00", "20:00"],
